@@ -1,0 +1,13 @@
+package.xml
+setup.cfg
+setup.py
+crazyflie_server_py/__init__.py
+crazyflie_server_py/crazyflie_server.py
+crazyflie_server_py.egg-info/PKG-INFO
+crazyflie_server_py.egg-info/SOURCES.txt
+crazyflie_server_py.egg-info/dependency_links.txt
+crazyflie_server_py.egg-info/entry_points.txt
+crazyflie_server_py.egg-info/requires.txt
+crazyflie_server_py.egg-info/top_level.txt
+crazyflie_server_py.egg-info/zip-safe
+resource/crazyflie_server_py

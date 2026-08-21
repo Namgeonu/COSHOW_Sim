@@ -1,0 +1,126 @@
+[0.161s] Invoking command in '/home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp': AMENT_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/cmake /home/namgeonwoo/COSHOW/ros2_ws/src/crazyswarm2/crazyflie_server_cpp -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp
+[0.331s] -- The C compiler identification is GNU 13.3.0
+[0.331s] -- The CXX compiler identification is GNU 13.3.0
+[0.331s] -- Detecting C compiler ABI info
+[0.331s] -- Detecting C compiler ABI info - done
+[0.336s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.336s] -- Detecting C compile features
+[0.336s] -- Detecting C compile features - done
+[0.344s] -- Detecting CXX compiler ABI info
+[0.428s] -- Detecting CXX compiler ABI info - done
+[0.436s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.436s] -- Detecting CXX compile features
+[0.436s] -- Detecting CXX compile features - done
+[0.438s] -- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+[0.549s] -- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+[0.608s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[0.638s] -- Found rclcpp: 28.1.21 (/opt/ros/jazzy/share/rclcpp/cmake)
+[0.670s] -- Found rosidl_generator_c: 4.6.9 (/opt/ros/jazzy/share/rosidl_generator_c/cmake)
+[0.683s] -- Found rosidl_generator_cpp: 4.6.9 (/opt/ros/jazzy/share/rosidl_generator_cpp/cmake)
+[0.699s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.717s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.789s] -- Found rmw_implementation_cmake: 7.3.3 (/opt/ros/jazzy/share/rmw_implementation_cmake/cmake)
+[0.791s] -- Found rmw_fastrtps_cpp: 8.4.4 (/opt/ros/jazzy/share/rmw_fastrtps_cpp/cmake)
+[0.882s] -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.13")  
+[0.898s] -- Found FastRTPS: /opt/ros/jazzy/include (Required is at least version "2.13") 
+[0.923s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[1.000s] -- Found tf2_ros: 0.36.21 (/opt/ros/jazzy/share/tf2_ros/cmake)
+[1.145s] -- Found std_srvs: 5.3.8 (/opt/ros/jazzy/share/std_srvs/cmake)
+[1.174s] -- Found nav_msgs: 5.3.8 (/opt/ros/jazzy/share/nav_msgs/cmake)
+[1.197s] -- Found sensor_msgs: 5.3.8 (/opt/ros/jazzy/share/sensor_msgs/cmake)
+[1.218s] -- Found crazyflie_interfaces: 1.0.5 (/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/share/crazyflie_interfaces/cmake)
+[1.249s] -- Found motion_capture_tracking_interfaces: 1.0.6 (/opt/ros/jazzy/share/motion_capture_tracking_interfaces/cmake)
+[1.273s] -- Found ros_environment: 4.2.1 (/opt/ros/jazzy/share/ros_environment/cmake)
+[1.288s] -- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.83.0/BoostConfig.cmake (found version "1.83.0") found components: program_options 
+[1.295s] -- Found libusb: /usr/lib/x86_64-linux-gnu/libusb-1.0.so  
+[1.411s] -- Configuring done (1.2s)
+[1.439s] -- Generating done (0.0s)
+[1.447s] -- Build files have been written to: /home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp
+[1.460s] Invoked command in '/home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp' returned '0': AMENT_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/cmake /home/namgeonwoo/COSHOW/ros2_ws/src/crazyswarm2/crazyflie_server_cpp -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp
+[1.461s] Invoking command in '/home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp': AMENT_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/cmake --build /home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp -- -j22 -l22
+[1.507s] [  2%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/Crazyradio.cpp.o[0m
+[1.508s] [  5%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/CrazyflieUSB.cpp.o[0m
+[1.508s] [  7%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/CrazyradioThread.cpp.o[0m
+[1.509s] [ 10%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/Connection.cpp.o[0m
+[1.509s] [ 13%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/USBManager.cpp.o[0m
+[1.510s] [ 15%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/USBDevice.cpp.o[0m
+[1.510s] [ 18%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/CrazyflieUSBThread.cpp.o[0m
+[1.510s] [ 21%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp/CMakeFiles/crazyflieLinkCpp.dir/src/Version.cpp.o[0m
+[3.916s] [ 23%] [32m[1mLinking CXX static library libcrazyflieLinkCpp.a[0m
+[3.973s] [ 23%] Built target crazyflieLinkCpp
+[3.987s] [ 26%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/CMakeFiles/crazyflie_cpp.dir/src/Crazyflie.cpp.o[0m
+[3.988s] [ 28%] [32mBuilding CXX object deps/crazyflie_tools/crazyflie_cpp/CMakeFiles/crazyflie_cpp.dir/src/crtp.cpp.o[0m
+[5.959s] [ 31%] [32m[1mLinking CXX static library libcrazyflie_cpp.a[0m
+[6.010s] [ 31%] Built target crazyflie_cpp
+[6.025s] [ 34%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/version.dir/src/version.cpp.o[0m
+[6.025s] [ 36%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/comCheck.dir/src/comCheck.cpp.o[0m
+[6.025s] [ 39%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/listMemories.dir/src/listMemories.cpp.o[0m
+[6.025s] [ 42%] [32mBuilding CXX object CMakeFiles/crazyflie_server.dir/src/crazyflie_server.cpp.o[0m
+[6.025s] [ 44%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/console.dir/src/console.cpp.o[0m
+[6.027s] [ 47%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/scan.dir/src/scan.cpp.o[0m
+[6.027s] [ 50%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/reboot.dir/src/reboot.cpp.o[0m
+[6.028s] [ 52%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/log.dir/src/log.cpp.o[0m
+[6.029s] [ 57%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/downloadUSDLogfile.dir/src/downloadUSDLogfile.cpp.o[0m
+[6.029s] [ 57%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/listLogVariables.dir/src/listLogVariables.cpp.o[0m
+[6.030s] [ 65%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/listParams.dir/src/listParams.cpp.o[0m
+[6.030s] [ 65%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/battery.dir/src/battery.cpp.o[0m
+[6.030s] [ 65%] [32mBuilding CXX object deps/crazyflie_tools/CMakeFiles/setParam.dir/src/setParam.cpp.o[0m
+[7.344s] [ 68%] [32m[1mLinking CXX executable version[0m
+[7.406s] [ 71%] [32m[1mLinking CXX executable comCheck[0m
+[7.489s] [ 71%] Built target version
+[7.523s] [ 71%] Built target comCheck
+[7.590s] [ 73%] [32m[1mLinking CXX executable listMemories[0m
+[7.631s] [ 76%] [32m[1mLinking CXX executable console[0m
+[7.761s] [ 78%] [32m[1mLinking CXX executable scan[0m
+[7.767s] [ 78%] Built target console
+[7.768s] [ 81%] [32m[1mLinking CXX executable downloadUSDLogfile[0m
+[7.795s] [ 81%] Built target listMemories
+[7.798s] [ 84%] [32m[1mLinking CXX executable listLogVariables[0m
+[7.884s] [ 86%] [32m[1mLinking CXX executable listParams[0m
+[7.902s] [ 86%] Built target scan
+[7.911s] [ 86%] Built target downloadUSDLogfile
+[7.913s] [ 86%] Built target listLogVariables
+[7.935s] [ 89%] [32m[1mLinking CXX executable log[0m
+[8.053s] [ 92%] [32m[1mLinking CXX executable battery[0m
+[8.064s] [ 92%] Built target log
+[8.091s] [ 92%] Built target listParams
+[8.198s] [ 94%] [32m[1mLinking CXX executable reboot[0m
+[8.206s] [ 94%] Built target battery
+[8.293s] [ 97%] [32m[1mLinking CXX executable setParam[0m
+[8.339s] [ 97%] Built target reboot
+[8.410s] [ 97%] Built target setParam
+[33.151s] [100%] [32m[1mLinking CXX executable crazyflie_server[0m
+[34.418s] [100%] Built target crazyflie_server
+[34.429s] Invoked command in '/home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp' returned '0': AMENT_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/cmake --build /home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp -- -j22 -l22
+[34.430s] Invoking command in '/home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp': AMENT_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/cmake --install /home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp
+[34.440s] -- Install configuration: ""
+[34.440s] -- Execute custom install script
+[34.440s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/comCheck
+[34.447s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/scan
+[34.454s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/listParams
+[34.461s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/listLogVariables
+[34.467s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/listMemories
+[34.473s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/reboot
+[34.480s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/battery
+[34.486s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/version
+[34.491s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/console
+[34.498s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/log
+[34.504s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/setParam
+[34.511s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/downloadUSDLogfile
+[34.516s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/lib/crazyflie_server_cpp/crazyflie_server
+[34.522s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/ament_index/resource_index/package_run_dependencies/crazyflie_server_cpp
+[34.529s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/ament_index/resource_index/parent_prefix_path/crazyflie_server_cpp
+[34.534s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/environment/ament_prefix_path.sh
+[34.541s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/environment/ament_prefix_path.dsv
+[34.547s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/environment/path.sh
+[34.554s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/environment/path.dsv
+[34.560s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/local_setup.bash
+[34.566s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/local_setup.sh
+[34.572s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/local_setup.zsh
+[34.578s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/local_setup.dsv
+[34.584s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/package.dsv
+[34.590s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/ament_index/resource_index/packages/crazyflie_server_cpp
+[34.597s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/cmake/crazyflie_server_cppConfig.cmake
+[34.603s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/cmake/crazyflie_server_cppConfig-version.cmake
+[34.609s] -- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_server_cpp/share/crazyflie_server_cpp/package.xml
+[34.617s] Invoked command in '/home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp' returned '0': AMENT_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces:/opt/ros/jazzy/opt/sdformat_vendor:/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_tools_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib:${LD_LIBRARY_PATH} PYTHONPATH=/home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_interfaces/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/cmake --install /home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp

@@ -1,0 +1,304 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-e17779f9ea85df5b05c3.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.15"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						5,
+						6,
+						15
+					]
+				},
+				{
+					"build" : "deps/crazyflie_tools",
+					"childIndexes" : 
+					[
+						2
+					],
+					"jsonFile" : "directory-deps.crazyflie_tools-98604ed8d2fd92e638a3.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.5"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "deps/crazyflie_tools",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						16
+					]
+				},
+				{
+					"build" : "deps/crazyflie_tools/crazyflie_cpp",
+					"childIndexes" : 
+					[
+						3
+					],
+					"jsonFile" : "directory-deps.crazyflie_tools.crazyflie_cpp-e86af8c2cbcae62d10b9.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.5"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 2,
+					"source" : "deps/crazyflie_tools/crazyflie_cpp",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp",
+					"jsonFile" : "directory-deps.crazyflie_tools.crazyflie_cpp.crazyflie-link-cpp-7111b4734c6159d3983d.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.5"
+					},
+					"parentIndex" : 2,
+					"projectIndex" : 3,
+					"source" : "deps/crazyflie_tools/crazyflie_cpp/crazyflie-link-cpp",
+					"targetIndexes" : 
+					[
+						3
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "crazyflie_server_cpp",
+					"targetIndexes" : 
+					[
+						5,
+						6,
+						15
+					]
+				},
+				{
+					"childIndexes" : 
+					[
+						2
+					],
+					"directoryIndexes" : 
+					[
+						1
+					],
+					"name" : "crazyflie_tools",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						16
+					]
+				},
+				{
+					"childIndexes" : 
+					[
+						3
+					],
+					"directoryIndexes" : 
+					[
+						2
+					],
+					"name" : "crazyflie_cpp",
+					"parentIndex" : 1,
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						3
+					],
+					"name" : "crazyflie-link-cpp",
+					"parentIndex" : 2,
+					"targetIndexes" : 
+					[
+						3
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 1,
+					"id" : "battery::@2055659b63a817688844",
+					"jsonFile" : "target-battery-fcf5e9db7e6946a72261.json",
+					"name" : "battery",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "comCheck::@2055659b63a817688844",
+					"jsonFile" : "target-comCheck-4acc0aea563174836faa.json",
+					"name" : "comCheck",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "console::@2055659b63a817688844",
+					"jsonFile" : "target-console-101f13e3114e9eaa22ab.json",
+					"name" : "console",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "crazyflieLinkCpp::@dbd3855cd6d219699178",
+					"jsonFile" : "target-crazyflieLinkCpp-e5dfe83dabd3f312deaa.json",
+					"name" : "crazyflieLinkCpp",
+					"projectIndex" : 3
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "crazyflie_cpp::@11907ff27abdad96a82f",
+					"jsonFile" : "target-crazyflie_cpp-f0030786f319bb7b8c5e.json",
+					"name" : "crazyflie_cpp",
+					"projectIndex" : 2
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "crazyflie_server::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-crazyflie_server-04e3fc3357cd96e01b17.json",
+					"name" : "crazyflie_server",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "crazyflie_server_cpp_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-crazyflie_server_cpp_uninstall-b4300ed8e3b7c38e7ecc.json",
+					"name" : "crazyflie_server_cpp_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "downloadUSDLogfile::@2055659b63a817688844",
+					"jsonFile" : "target-downloadUSDLogfile-558cea2359054b6bb9b5.json",
+					"name" : "downloadUSDLogfile",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "listLogVariables::@2055659b63a817688844",
+					"jsonFile" : "target-listLogVariables-4536284c0d97151c5223.json",
+					"name" : "listLogVariables",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "listMemories::@2055659b63a817688844",
+					"jsonFile" : "target-listMemories-926db742014f66aa5e96.json",
+					"name" : "listMemories",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "listParams::@2055659b63a817688844",
+					"jsonFile" : "target-listParams-070f3a1c0e9d0efe4fe1.json",
+					"name" : "listParams",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "log::@2055659b63a817688844",
+					"jsonFile" : "target-log-7ed897997df50d9151c5.json",
+					"name" : "log",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "reboot::@2055659b63a817688844",
+					"jsonFile" : "target-reboot-d29fb903b6dcf014bec2.json",
+					"name" : "reboot",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "scan::@2055659b63a817688844",
+					"jsonFile" : "target-scan-0824369bf2d2e2e12567.json",
+					"name" : "scan",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "setParam::@2055659b63a817688844",
+					"jsonFile" : "target-setParam-c4541adaa9a38994a873.json",
+					"name" : "setParam",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-96a9a3cf2b032e731eca.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "version::@2055659b63a817688844",
+					"jsonFile" : "target-version-b0cec64b5fea0a2355ea.json",
+					"name" : "version",
+					"projectIndex" : 1
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_server_cpp",
+		"source" : "/home/namgeonwoo/COSHOW/ros2_ws/src/crazyswarm2/crazyflie_server_cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}

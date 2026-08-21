@@ -1,0 +1,38 @@
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake: 2.5.6 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/namgeonwoo/COSHOW/ros2_ws/build/crazyflie_description
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description//urdf/cf2_assembly.stl
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description//urdf/cf2_assembly_with_props.dae
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description//urdf/crazyflie_description.urdf
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/ament_index/resource_index/package_run_dependencies/crazyflie_description
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/ament_index/resource_index/parent_prefix_path/crazyflie_description
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/environment/ament_prefix_path.sh
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/environment/ament_prefix_path.dsv
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/environment/path.sh
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/environment/path.dsv
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/local_setup.bash
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/local_setup.sh
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/local_setup.zsh
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/local_setup.dsv
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/package.dsv
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/ament_index/resource_index/packages/crazyflie_description
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/cmake/crazyflie_descriptionConfig.cmake
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/cmake/crazyflie_descriptionConfig-version.cmake
+-- Symlinking: /home/namgeonwoo/COSHOW/ros2_ws/install/crazyflie_description/share/crazyflie_description/package.xml
