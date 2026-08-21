@@ -1,2 +1,0 @@
-[console_scripts]
-crazyflie_server = crazyflie_server_py.crazyflie_server:main

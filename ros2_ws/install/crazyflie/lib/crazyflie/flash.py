@@ -1,1 +1,0 @@
-/home/namgeonwoo/COSHOW/ros2_ws/src/crazyswarm2/crazyflie/scripts/flash.py
