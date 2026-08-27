@@ -25,3 +25,14 @@ _archive/
 # 에디터
 .vscode/
 .idea/
+
+# 로컬 백업 스냅샷
+*.bak
+*.bak_*
+*.bak2
+*.with_cam
+*.stage*_ok
+*.dbg*_ok
+
+# py_bt_ros vendored: 파이썬 캐시만 제외
+bt/**/__pycache__/

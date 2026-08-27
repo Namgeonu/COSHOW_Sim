@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+  <!-- Phase 1: limo_a → 관측점 P0, 드론 A 이륙 → P0 상공 → 마커 검출 대기 -->
+  <BehaviorTree ID="phase1_observe">
+    <ReactiveSequence>
+      <ReactiveFallback>
+        <IsLimoAt robot="limo_a" x="0.0" y="0.0"/>
+        <LimoNavigateTo robot="limo_a" x="0.0" y="0.0" yaw="1.57"/>
+      </ReactiveFallback>
+      <ReactiveFallback>
+        <IsDroneAirborne robot="cf_a"/>
+        <DroneTakeoff robot="cf_a"/>
+      </ReactiveFallback>
+      <ReactiveFallback>
+        <IsDroneAt robot="cf_a" x="0.0" y="0.0" z="1.5"/>
+        <DroneGoTo robot="cf_a" x="0.0" y="0.0" z="1.5"/>
+      </ReactiveFallback>
+      <Idle/>
+    </ReactiveSequence>
+  </BehaviorTree>
+</root>

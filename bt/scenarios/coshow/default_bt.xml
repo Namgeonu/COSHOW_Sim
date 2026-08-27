@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+  <!--
+    COSHOW 중앙 제어 BT — 4단 백체인 (단일 사이클)
+
+      미션 완료?      ← 아니면: 전원 복귀
+        구출 완료?    ← 아니면: 재검출 → C·D 복귀 ∥ limo_b 출동 → 10s 대기
+          타겟 마커?  ← 아니면: 관측자 복귀 ∥ 탐색
+            미션 마커?← 아니면: Phase 1 관측 (phase1_observe.xml)
+
+    각 조건 바로 아래 ReactiveSequence 가 "그 조건을 참으로 만드는 행동"이고,
+    그 첫 자식은 항상 한 단계 아래 조건의 ReactiveFallback 이다.
+    IsMissionComplete 가 참이면 루트가 SUCCESS 로 끝나고 그 상태로 정지한다 (반복 없음).
+  -->
+  <BehaviorTree ID="coshow">
+    <ReactiveSequence>
+      <UpdateBlackboard/>
+      <ReactiveFallback>
+        <IsMissionComplete/>
+        <ReactiveSequence>
+
+          <ReactiveFallback>
+            <IsRescue robot="limo_b" target_key="P_N"/>
+            <ReactiveSequence>
+
+              <ReactiveFallback>
+                <IsTMFound/>
+                <ReactiveSequence>
+
+                  <ReactiveFallback>
+                    <IsMMFound/>
+                    <SubTree ID="phase1_observe"/>
+                  </ReactiveFallback>
+
+                  <!-- 타겟 마커를 얻기 위한 행동: 관측자 복귀 ∥ 탐색 -->
+                  <SetLed robot="all" color="blue"/>
+                  <Parallel success_count="3">
+                    <ReactiveFallback>
+                      <IsLimoAt robot="limo_a" x="-3.5" y="-2.0"/>
+                      <LimoNavigateTo robot="limo_a" x="-3.5" y="-2.0" yaw="0.0"/>
+                    </ReactiveFallback>
+                    <ReactiveFallback>
+                      <AreDronesReturn robots="cf_a"/>
+                      <ReturnDrones robots="cf_a"/>
+                    </ReactiveFallback>
+                    <Search/>
+                  </Parallel>
+                </ReactiveSequence>
+              </ReactiveFallback>
+
+              <!-- 구출 완료를 위한 행동: 재검출 → C·D 복귀 ∥ limo_b 출동 → 10s 대기 -->
+              <ReactiveFallback>
+                <IsTargetConfirmed/>
+                <CatchTarget/>
+              </ReactiveFallback>
+              <SetLed robot_key="finder" color="red"/>
+              <Parallel success_count="2">
+                <ReactiveFallback>
+                  <AreDronesReturn robots="cf_b,cf_c,cf_d" exclude_key="finder"/>
+                  <ReturnDrones robots="cf_b,cf_c,cf_d" exclude_key="finder"/>
+                </ReactiveFallback>
+                <ReactiveSequence>
+                  <ReactiveFallback>
+                    <IsLimoAt robot="limo_b" target_key="P_N"/>
+                    <LimoNavigateTo robot="limo_b" target_key="P_N"/>
+                  </ReactiveFallback>
+                  <SetLed robot_key="finder" color="green"/>
+                  <Idle/>
+                </ReactiveSequence>
+              </Parallel>
+            </ReactiveSequence>
+          </ReactiveFallback>
+
+          <!-- 미션 완료를 위한 행동: LED 소등, limo_a ∥ limo_b ∥ 드론 전원 복귀
+               (limo_a 는 Phase 2 에서 복귀를 시작하지만, 타겟 발견으로 그 브랜치가 halt 되면
+                Nav2 결과를 읽을 노드가 없어지므로 여기서 다시 확인·기록한다) -->
+          <SetLed robot="all" color="off"/>
+          <Parallel success_count="3">
+            <ReactiveFallback>
+              <IsLimoAt robot="limo_a" x="-3.5" y="-2.0"/>
+              <LimoNavigateTo robot="limo_a" x="-3.5" y="-2.0" yaw="0.0"/>
+            </ReactiveFallback>
+            <ReactiveFallback>
+              <IsLimoAt robot="limo_b" x="-3.5" y="-3.0"/>
+              <LimoNavigateTo robot="limo_b" x="-3.5" y="-3.0" yaw="0.0"/>
+            </ReactiveFallback>
+            <ReactiveFallback>
+              <AreDronesReturn robots="cf_a,cf_b,cf_c,cf_d"/>
+              <ReturnDrones robots="cf_a,cf_b,cf_c,cf_d"/>
+            </ReactiveFallback>
+          </Parallel>
+        </ReactiveSequence>
+      </ReactiveFallback>
+    </ReactiveSequence>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="UpdateBlackboard" editable="true"/>
+    <Action ID="Idle" editable="true"/>
+    <Action ID="SetLed" editable="true">
+      <input_port name="color"/><input_port name="robot"/><input_port name="robot_key"/>
+    </Action>
+    <Action ID="DroneTakeoff" editable="true">
+      <input_port name="robot"/><input_port name="height"/><input_port name="duration"/>
+    </Action>
+    <Action ID="DroneGoTo" editable="true">
+      <input_port name="robot"/><input_port name="robot_key"/>
+      <input_port name="x"/><input_port name="y"/><input_port name="z"/><input_port name="target_key"/>
+    </Action>
+    <Action ID="DroneLand" editable="true"><input_port name="robot"/></Action>
+    <Action ID="LimoNavigateTo" editable="true">
+      <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="yaw"/><input_port name="target_key"/>
+    </Action>
+    <Action ID="Search" editable="true"/>
+    <Action ID="ReturnDrones" editable="true">
+      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
+    </Action>
+    <Action ID="CatchTarget" editable="true"/>
+    <Condition ID="IsMissionComplete" editable="true"/>
+    <Condition ID="IsRescue" editable="true"><input_port name="robot"/><input_port name="target_key"/></Condition>
+    <Condition ID="IsMMFound" editable="true"/>
+    <Condition ID="IsTMFound" editable="true"/>
+    <Condition ID="IsTargetConfirmed" editable="true"/>
+    <Condition ID="IsDroneAt" editable="true">
+      <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="z"/>
+      <input_port name="tol"/><input_port name="hold"/>
+    </Condition>
+    <Condition ID="IsDroneAirborne" editable="true"><input_port name="robot"/></Condition>
+    <Condition ID="IsDroneLanded" editable="true"><input_port name="robot"/></Condition>
+    <Condition ID="AreDronesReturn" editable="true">
+      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
+    </Condition>
+    <Condition ID="IsLimoAt" editable="true">
+      <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="target_key"/><input_port name="tol"/>
+    </Condition>
+  </TreeNodesModel>
+</root>

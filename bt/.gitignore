@@ -1,0 +1,25 @@
+__pycache__
+*.pyc
+
+# Ignore everything under the 'output' folder
+output/
+monte_carlo_analysis/
+
+# Ignore BT-related auto-generated file
+*.btproj
+
+# Ignore MacOS specific files
+.DS_Store
+
+
+# Ignore ROS2 colcon build artifacts
+build/
+install/
+log/
+
+# Ignore Webots generated files
+*.wbproj
+*.jpg
+
+# Ignore py_bt_ros generated files
+results/
