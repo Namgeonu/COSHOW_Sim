@@ -7,7 +7,7 @@ from modules.utils import set_config
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='py_bt_ros')
-parser.add_argument('--config', type=str, default='scenarios/simple/configs/grape.yaml', help='Path to the configuration file (default: --config=scenarios/simple/configs/config.yaml)')
+parser.add_argument('--config', type=str, default='scenarios/coshow/configs/coshow_sim.yaml', help='Path to the configuration file (default: --config=scenarios/coshow/configs/coshow_sim.yaml)')
 parser.add_argument('--ns', type=str, default=None, help='Override agent namespace, e.g. --ns /Fire_UGV_2')
 args = parser.parse_args()
 
