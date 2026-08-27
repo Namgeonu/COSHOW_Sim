@@ -1,0 +1,177 @@
+# ==========================================================================
+# COSHOW 2단계 Nav2 파라미터 (LIMO 단독, 빈 지도, 차동구동)
+# ==========================================================================
+#
+# ⚠️⚠️⚠️ 버전 이식 필수 확인 (Ubuntu 22.04 / Humble 적용 시) ⚠️⚠️⚠️
+#
+# 이 파일은 ROS2 Jazzy 기준입니다. Humble(ad15/새 PC)로 옮길 때 아래를 반드시 확인:
+#
+# [핵심] enable_stamped_cmd_vel 파라미터 (controller_server 안):
+#   - Jazzy: 기본값 false(일반 Twist). Jazzy의 DiffDriveController는
+#            TwistStamped를 요구하므로, 여기서 true로 명시해 양쪽을 TwistStamped로 통일함.
+#   - Kilted 이상: 기본값이 이미 TwistStamped.
+#   - Humble: 이 파라미터가 아예 없을 가능성이 높음. Humble Nav2는 일반 Twist를 뿜고
+#            Humble DiffDriveController도 일반 Twist를 받으므로, 양쪽이 자동으로 맞음.
+#
+# [Humble 이식 절차]
+#   1. Humble에서 `ros2 param describe /controller_server enable_stamped_cmd_vel` 로 존재 확인
+#   2. 없으면 아래 enable_stamped_cmd_vel 줄을 삭제 (Humble은 Twist로 자동 통일)
+#   3. 있으면 Humble DiffDriveController가 받는 타입 확인 후 일치시킬 것
+#
+# [대안/폴백] 버전 독립성이 필요하면 twist_stamper 노드(방법 1)로 전환.
+#   twist_stamper는 Nav2 출력을 항상 TwistStamped로 변환하므로 버전 무관하게 동작.
+#   Jazzy/Humble 양쪽을 장기 지원해야 한다면 방법 1이 더 안전할 수 있음.
+#   (twist_stamper는 이미 양쪽 환경에 설치 검증됨)
+#
+# ==========================================================================
+
+# --- BT Navigator: navigate_to_pose action 서버를 여는 노드 ---
+bt_navigator:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom
+    bt_loop_duration: 10
+    default_server_timeout: 20
+
+# --- Controller Server: 경로 추종 -> /cmd_vel 생성 ---
+controller_server:
+  ros__parameters:
+    controller_frequency: 20.0
+    # ⚠️ 버전 이식 핵심 (위 헤더 주석 참조):
+    # Jazzy에서 Nav2가 TwistStamped를 뿜게 하여 DiffDriveController와 타입 일치.
+    # Humble 이식 시 이 줄 재검토 필수.
+    enable_stamped_cmd_vel: true
+    min_x_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 6.28   # 도착 헤딩 무관 (맴돌기 방지, skid-steer 특성 고려)
+      stateful: True
+    # 공식 AgileX LIMO 와 동일: 순수 DWB (RotationShim 미사용).
+    # GT odom 이 정확한 위치·방향을 주므로 DWB 만으로 제어.
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      # --- 차동구동 속도 제한 (LIMO 실물 스펙: max 0.2 m/s 근처) ---
+      min_vel_x: 0.0
+      min_vel_y: 0.0          # 차동구동은 옆이동 0
+      max_vel_x: 0.5
+      max_vel_y: 0.0
+      max_vel_theta: 1.0
+      min_speed_xy: 0.0
+      max_speed_xy: 0.5
+      min_speed_theta: 0.0
+      acc_lim_x: 2.5
+      acc_lim_theta: 3.2
+      decel_lim_x: -2.5
+      decel_lim_theta: -3.2
+      vx_samples: 20
+      vtheta_samples: 20
+      sim_time: 1.7
+      # 차동구동: 제자리 회전 허용
+      xy_goal_tolerance: 0.25
+      trans_stopped_velocity: 0.25
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign",
+                "PathAlign", "PathDist", "GoalDist"]
+
+# --- Global Costmap: 전역 지도 (빈 지도) ---
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_link
+      robot_radius: 0.18        # LIMO 대략 반경
+      resolution: 0.05
+      track_unknown_space: false
+      # 빈 지도: 외부 map 없이 고정 크기 costmap 사용.
+      # rolling_window=true 로 로봇을 항상 중심에 둬서 "out of bounds" 방지.
+      rolling_window: true
+      width: 10
+      height: 10
+      # static_layer 제거 (외부 /map 안 씀), scan 기반 obstacle + inflation 만 유지
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+
+# --- Local Costmap: 지역 지도 (로봇 주변) ---
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.05
+      robot_radius: 0.18
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.55
+
+# --- Planner Server: 전역 경로 계획 ---
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 20.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.5
+      use_astar: false
+      allow_unknown: true
+
+# --- Behavior Server: 복구 동작 (후진, 회전 등) ---
+behavior_server:
+  ros__parameters:
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_link
+    # ⚠️ 이 노드도 버전에 따라 cmd_vel 타입 영향받음 (위 헤더 참조)
+    enable_stamped_cmd_vel: true
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors::DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors::Wait"

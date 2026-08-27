@@ -40,6 +40,26 @@ Solid {
     }
   ]
 }
+DEF marker_11 Solid {
+  translation 0 0 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_11.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_11"
+}
 # ---- 드론 4대: 각자 controller <extern> (별도 driver 프로세스) ----
 DEF cf_a CrazyflieSim {
   translation -4.2 0.6 0.015

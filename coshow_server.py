@@ -17,6 +17,7 @@ pose는 각 드라이버가 /cf_a/pose로 직접 발행하므로 서버가 중�
 """
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from functools import partial
 
 from crazyflie_interfaces.srv import Takeoff, Land, GoTo
@@ -24,7 +25,8 @@ from crazyflie_interfaces.srv import Takeoff, Land, GoTo
 
 class CoshowServer(Node):
     def __init__(self):
-        super().__init__('coshow_server')
+        super().__init__('coshow_server',
+                         parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         # 로봇 목록 (파라미터)
         self.declare_parameter('robots', ['cf_a', 'cf_b', 'cf_c', 'cf_d'])

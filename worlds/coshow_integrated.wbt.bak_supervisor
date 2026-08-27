@@ -1,0 +1,118 @@
+#VRML_SIM R2025a utf8
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Grass.proto"
+EXTERNPROTO "../protos/CrazyflieSim.proto"
+EXTERNPROTO "../protos/LimoFourDiff.proto"
+WorldInfo {
+  info [
+    "COSHOW 방향2 2단계 월드: cf_a~d 4대 (프로세스 분리 static 검증)"
+    "각 드론 controller <extern> -> 별도 webots_ros2_driver + cf_node.CfNode 프로세스"
+  ]
+  title "COSHOW stage2 (4 drones)"
+  basicTimeStep 2
+}
+Viewpoint {
+  orientation -0.22 0.4 0.89 1.5
+  position -6.5 -5.5 5.0
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 10 10
+  floorTileSize 1 1
+  wallHeight 0.05
+}
+Solid {
+  translation 0 0 0.001
+  name "activity_field_6x6"
+  children [
+    Shape {
+      appearance Grass {
+        colorOverride 0.35 0.6 0.3
+        type "artificial"
+      }
+      geometry Plane {
+        size 6 6
+      }
+    }
+  ]
+}
+DEF marker_1 Solid {
+  translation 2.5 2.5 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_1.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_1"
+}
+LimoFourDiff {
+  translation -3.5 -2 0.145
+  rotation 0 0 1 0
+  name "limo_a"
+  controller "<extern>"
+  extensionSlot [
+    Solid {
+      translation 0 0 0.12
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColorMap ImageTexture {
+              url [
+                "../markers/aruco_11.png"
+              ]
+            }
+            roughness 1
+            metalness 0
+          }
+          geometry Box {
+            size 0.2 0.2 0.002
+          }
+        }
+      ]
+      name "limo_a_marker_11"
+    }
+  ]
+}
+LimoFourDiff {
+  translation -3.5 -3 0.145
+  rotation 0 0 1 0
+  name "limo_b"
+  controller "<none>"
+}
+# ---- 드론 4대: 각자 controller <extern> (별도 driver 프로세스) ----
+DEF cf_a CrazyflieSim {
+  translation -4.2 0.6 0.015
+  name "cf_a"
+  controller "<extern>"
+}
+DEF cf_b CrazyflieSim {
+  translation -4.2 0.2 0.015
+  name "cf_b"
+  controller "<extern>"
+}
+DEF cf_c CrazyflieSim {
+  translation -4.2 -0.2 0.015
+  name "cf_c"
+  controller "<extern>"
+}
+DEF cf_d CrazyflieSim {
+  translation -4.2 -0.6 0.015
+  name "cf_d"
+  controller "<extern>"
+}

@@ -1,0 +1,35 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 31  # Webots의 basicTimeStep(32ms)에 맞춤 : 1000 / 32 = 31.25인데, 정수로 표현
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    diffdrive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+
+joint_state_broadcaster:
+  ros__parameters:
+    joints: ["front_left_wheel", "front_right_wheel", "rear_left_wheel", "rear_right_wheel"]
+
+diffdrive_controller:
+  ros__parameters:
+    left_wheel_names: ["front_left_wheel", "rear_left_wheel"]
+    right_wheel_names: ["front_right_wheel", "rear_right_wheel"]
+
+    # PROTO 기반 값
+    wheel_separation: 0.172 # Gazebo 공식 LIMO 값 (4륜 회전저항 반영한 유효 간격, 실제 물리 간격 0.13과 다름)
+    wheel_radius: 0.045
+
+    use_stamped_vel: false
+    base_frame_id: "base_link"
+
+    # GT odom 플러그인(gt_odom)이 odom + odom->base_link TF 를 담당.
+    # DiffDriveController 는 cmd_vel->바퀴 역할만. 엔코더 odom TF 는 끔(충돌 방지).
+    enable_odom_tf: false
+    
+    linear:
+      x:
+        has_velocity_limits: true
+        max_velocity: 0.2 # Maximal speed of LIMO in m/s

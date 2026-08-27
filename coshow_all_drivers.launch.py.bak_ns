@@ -1,0 +1,21 @@
+"""COSHOW 통합 드라이버 launch: 드론 4대 + LIMO 드라이버를 한 번에 실행.
+
+사용:
+  source /home/namgeonwoo/COSHOW/setup_env.sh
+  ros2 launch /home/namgeonwoo/COSHOW/coshow_all_drivers.launch.py
+"""
+import os
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+
+HOME = os.path.expanduser('~')
+
+def generate_launch_description():
+    drone_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(HOME, 'COSHOW', 'coshow_stage2.launch.py')))
+    limo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(HOME, 'COSHOW', 'limo_nav2.launch.py')))
+    return LaunchDescription([drone_launch, limo_launch])

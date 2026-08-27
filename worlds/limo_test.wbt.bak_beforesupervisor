@@ -1,0 +1,59 @@
+#VRML_SIM R2025a utf8
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Grass.proto"
+EXTERNPROTO "../protos/LimoFourDiff.proto"
+WorldInfo {
+  info [
+    "COSHOW LIMO 테스트 월드 (드론 월드와 동일 규격)"
+    "바닥 10x10 아레나 + 중앙 6x6 인조잔디 활동구역. LIMO 1대."
+  ]
+  title "COSHOW stage (LIMO on drone-spec map)"
+  basicTimeStep 32
+  contactProperties [
+    ContactProperties {
+      material1 "limo_wheel"
+      material2 "default"
+      coulombFriction [ 100 ]
+      forceDependentSlip [ 0 ]
+      softCFM 0.0001
+      softERP 0.5
+      bounce 0
+    }
+  ]
+}
+Viewpoint {
+  orientation -0.22 0.4 0.89 1.5
+  position -6.5 -5.5 5.0
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 10 10
+  floorTileSize 1 1
+  wallHeight 0.05
+}
+Solid {
+  translation 0 0 0.001
+  name "activity_field_6x6"
+  children [
+    Shape {
+      appearance Grass {
+        colorOverride 0.35 0.6 0.3
+        type "artificial"
+      }
+      geometry Plane {
+        size 6 6
+      }
+    }
+  ]
+}
+LimoFourDiff {
+  translation 0 0 0.145
+  rotation 0 0 1 0
+  name "limo_a"
+  controller "<extern>"
+}

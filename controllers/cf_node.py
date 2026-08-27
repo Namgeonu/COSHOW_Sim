@@ -21,10 +21,14 @@ PYTHONPATH 필요:
 """
 import math
 import os
+import socket
+import struct
 import sys
 
+import cv2
 import numpy as np
 import rclpy
+from builtin_interfaces.msg import Time as RosTime
 from rclpy.node import Node
 
 # --- 경로 설정 (환경변수 or 기본값) ---
@@ -94,6 +98,18 @@ class CfNode:
         self.imu.enable(self.timestep)
         self.gyro = self.robot.getDevice('gyro')
         self.gyro.enable(self.timestep)
+        # --- 카메라 (방향 검증용, enable만) ---
+        self.camera = self.robot.getDevice('camera')
+        self.camera.enable(self.timestep * 16)   # 2ms*16=32ms (~31fps)
+        self.cam_interval = 16
+        self._cam_tick = 0
+        # --- UDP 스트리밍 (AI-deck 프로토콜 호환) ---
+        # 드론 이름 -> deck 포트 (cf_a=6001 ... cf_d=6004)
+        deck_port = 6000 + (ord(self.robot_name[-1]) - ord('a') + 1)
+        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_sock.bind(('0.0.0.0', deck_port))
+        self.udp_sock.setblocking(False)
+        self.udp_client = None   # FER 프로브 보낸 뷰어 주소
 
         self.past_pos = None
         self.past_t = self.robot.getTime()
@@ -217,7 +233,9 @@ class CfNode:
 
         # 6. pose 발행
         ps = PoseStamped()
-        ps.header.stamp = self.node.get_clock().now().to_msg()
+        # Webots 시뮬 시각으로 스탬프 (/clock 과 동일 기준, gt_odom 과 같은 패턴)
+        _t = self.robot.getTime()
+        ps.header.stamp = RosTime(sec=int(_t), nanosec=int((_t - int(_t)) * 1e9))
         ps.header.frame_id = 'world'
         ps.pose.position.x = float(pos[0])
         ps.pose.position.y = float(pos[1])
@@ -228,3 +246,45 @@ class CfNode:
         ps.pose.orientation.y = float(q[2])
         ps.pose.orientation.z = float(q[3])
         self.pose_pub.publish(ps)
+        # --- UDP: FER/BYE 폴링 ---
+        while True:
+            try:
+                data, addr = self.udp_sock.recvfrom(64)
+            except BlockingIOError:
+                break
+            except OSError:
+                break
+            if data == b'FER':
+                if self.udp_client != addr:
+                    self.node.get_logger().info(
+                        f'[{self.robot_name}] stream client {addr}')
+                self.udp_client = addr
+            elif data == b'BYE':
+                self.udp_client = None
+        # --- UDP: cam_interval 틱마다 JPEG 프레임 전송 ---
+        self._cam_tick += 1
+        if self._cam_tick >= self.cam_interval:
+            self._cam_tick = 0
+            if self.udp_client is not None:
+                img = self.camera.getImage()
+                if img is not None:
+                    w = self.camera.getWidth()
+                    h = self.camera.getHeight()
+                    bgra = np.frombuffer(img, np.uint8).reshape((h, w, 4))
+                    gray = cv2.cvtColor(bgra, cv2.COLOR_BGRA2GRAY)
+                    ok, jpg = cv2.imencode('.jpg', gray)
+                    if ok:
+                        buf = jpg.tobytes()
+                        cpx = b'\x00\x00\x00\x00'
+                        hdr = struct.pack('<BHHBBI', 0xBC, w, h, 1, 1, len(buf))
+                        chunk = 1000
+                        first = buf[:chunk - len(hdr)]
+                        try:
+                            self.udp_sock.sendto(cpx + hdr + first, self.udp_client)
+                            off = len(first)
+                            while off < len(buf):
+                                part = buf[off:off + chunk]
+                                self.udp_sock.sendto(cpx + part, self.udp_client)
+                                off += len(part)
+                        except OSError:
+                            pass
