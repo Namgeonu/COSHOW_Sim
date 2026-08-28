@@ -5,8 +5,8 @@
 
 사용:
   source /home/namgeonwoo/COSHOW/setup_env.sh
-  ros2 launch /home/namgeonwoo/COSHOW/limo_stack.launch.py                 # limo_a
-  ros2 launch /home/namgeonwoo/COSHOW/limo_stack.launch.py robots:=limo_a,limo_b
+  ros2 launch /home/namgeonwoo/COSHOW/limo_driver.launch.py                 # limo_a
+  ros2 launch /home/namgeonwoo/COSHOW/limo_driver.launch.py robots:=limo_a,limo_b
 """
 import os
 from launch import LaunchDescription

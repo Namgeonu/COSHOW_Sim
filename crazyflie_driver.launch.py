@@ -9,7 +9,7 @@
 
 실행:
   터미널1: webots ~/COSHOW/worlds/coshow_integrated.wbt
-  터미널2: ros2 launch ~/COSHOW/coshow_stage2.launch.py
+  터미널2: ros2 launch ~/COSHOW/crazyflie_driver.launch.py
 """
 import os
 

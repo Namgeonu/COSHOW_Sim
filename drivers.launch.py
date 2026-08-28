@@ -2,7 +2,7 @@
 
 사용:
   source /home/namgeonwoo/COSHOW/setup_env.sh
-  ros2 launch /home/namgeonwoo/COSHOW/coshow_all_drivers.launch.py
+  ros2 launch /home/namgeonwoo/COSHOW/drivers.launch.py
 """
 import os
 from launch import LaunchDescription
@@ -15,10 +15,10 @@ HOME = os.path.expanduser('~')
 def generate_launch_description():
     drone_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(HOME, 'COSHOW', 'coshow_stage2.launch.py')))
+            os.path.join(HOME, 'COSHOW', 'crazyflie_driver.launch.py')))
     limo_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(HOME, 'COSHOW', 'limo_stack.launch.py')),
+            os.path.join(HOME, 'COSHOW', 'limo_driver.launch.py')),
         launch_arguments={'robots': 'limo_a,limo_b'}.items())
     ros2_supervisor = Ros2SupervisorLauncher(port='1234')
     return LaunchDescription([ros2_supervisor, drone_launch, limo_launch])
