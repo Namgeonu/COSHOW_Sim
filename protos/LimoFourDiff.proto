@@ -32,7 +32,7 @@ PROTO LimoFourDiff [
           }
           Pose {
             translation 0.000000 0.000000 -0.150000
-            rotation 0.000000 0.000000 1.000000 -1.570800
+            rotation 0.000000 0.000000 1.000000 1.570800
             children [
               DEF limo_base_visual CadShape {
                 url "meshes/limo_base.dae"

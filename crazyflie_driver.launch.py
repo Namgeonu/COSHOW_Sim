@@ -1,4 +1,4 @@
-"""COSHOW 방향2 2단계 launch: cf_a~d 4대 (WebotsController, Jazzy 정석).
+"""COSHOW 방향2 2단계 launch: cf_a~d 4대 (WebotsController).
 
 각 드론마다 WebotsController 하나 (robot_name으로 로봇 지정).
 각 driver = 별도 프로세스 → cf_node.CfNode → 자기 cffirmware(static 독립).
@@ -7,9 +7,7 @@
   - 월드(coshow_integrated.wbt): cf_a~d 모두 controller "<extern>"
   - cf_X.urdf가 controllers/에 있음 (cf_node.CfNode 플러그인 지정)
 
-실행:
-  터미널1: webots ~/COSHOW/worlds/coshow_integrated.wbt
-  터미널2: ros2 launch ~/COSHOW/crazyflie_driver.launch.py
+
 """
 import os
 

@@ -1,10 +1,12 @@
 #VRML_SIM R2025a utf8
+
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Grass.proto"
 EXTERNPROTO "../protos/CrazyflieSim.proto"
 EXTERNPROTO "../protos/LimoFourDiff.proto"
+
 WorldInfo {
   info [
     "COSHOW 방향2 2단계 월드: cf_a~d 4대 (프로세스 분리 static 검증)"
@@ -14,8 +16,8 @@ WorldInfo {
   basicTimeStep 2
 }
 Viewpoint {
-  orientation -0.22 0.4 0.89 1.5
-  position -6.5 -5.5 5.0
+  orientation 0.028229702261606218 0.9978139463222574 0.05975292825480734 0.3367161913867963
+  position -12.58493340641843 -0.5458561833681006 4.805308621499152
 }
 TexturedBackground {
 }
@@ -28,7 +30,6 @@ RectangleArena {
 }
 Solid {
   translation 0 0 0.001
-  name "activity_field_6x6"
   children [
     Shape {
       appearance Grass {
@@ -40,6 +41,7 @@ Solid {
       }
     }
   ]
+  name "activity_field_6x6"
 }
 DEF marker_1 Solid {
   translation 2.5 2.5 0.003
@@ -61,11 +63,70 @@ DEF marker_1 Solid {
   ]
   name "marker_1"
 }
+DEF marker_2 Solid {
+  translation -1.5 1.5 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_2.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_2"
+}
+DEF marker_3 Solid {
+  translation 2 -1 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_3.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_3"
+}
+DEF marker_4 Solid {
+  translation 0 -2 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_4.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_4"
+}
 LimoFourDiff {
-  translation -3.5 -2 0.145
-  rotation 0 0 1 0
+  translation -4 -2.000007308005754 0.1449263300206953
+  rotation 0.907135317445525 0.42083906168849883 3.873177671425694e-07 5.560599534086693e-05
   name "limo_a"
-  controller "<extern>"
   extensionSlot [
     Solid {
       translation 0 0 0.12
@@ -90,29 +151,31 @@ LimoFourDiff {
   ]
 }
 LimoFourDiff {
-  translation -3.5 -3 0.145
-  rotation 0 0 1 0
+  translation -4 -3.500007308005754 0.1449263300206953
+  rotation 0.9071353174365494 0.42083906170784624 3.875386388319004e-07 5.560599533832344e-05
   name "limo_b"
-  controller "<extern>"
 }
-# ---- 드론 4대: 각자 controller <extern> (별도 driver 프로세스) ----
 DEF cf_a CrazyflieSim {
-  translation -4.2 0.6 0.015
+  translation -4.2 0.6 0.014999166149999996
+  rotation -0.3627215850106132 -0.5983880158592289 -0.714398232251063 1.5891643287131211e-18
   name "cf_a"
   controller "<extern>"
 }
 DEF cf_b CrazyflieSim {
-  translation -4.2 0.2 0.015
+  translation -4.2 0.2 0.014999166149999996
+  rotation 0.05491522438492799 0.9685458310775623 -0.24270000254022872 1.4399365829767889e-18
   name "cf_b"
   controller "<extern>"
 }
 DEF cf_c CrazyflieSim {
-  translation -4.2 -0.2 0.015
+  translation -4.2 -0.2 0.014999166149999996
+  rotation 0.05491522438492799 0.9685458310775623 -0.24270000254022872 1.4399365829767889e-18
   name "cf_c"
   controller "<extern>"
 }
 DEF cf_d CrazyflieSim {
-  translation -4.2 -0.6 0.015
+  translation -4.2 -0.6 0.014999166149999996
+  rotation -0.3627215850106132 -0.5983880158592289 -0.714398232251063 1.5891643287131211e-18
   name "cf_d"
   controller "<extern>"
 }

@@ -10,6 +10,7 @@ ArUco 마커를 검출하고, 검출 시점의 드론 pose와 함께
 옵션:
   -p display:=true   # OpenCV 창으로 영상+검출 표시 (기본 false)
 """
+import copy
 import socket
 import struct
 import time
@@ -22,6 +23,43 @@ from rclpy.parameter import Parameter
 
 from geometry_msgs.msg import PoseStamped
 from coshow_interfaces.msg import MarkerDetection, MarkerDetections
+
+# ── 카메라 역투영: 마커 픽셀 → 지면(z=0) 월드 좌표 (논문 Algorithm 1, 하방 카메라) ──
+_IMG_W, _IMG_H = 320.0, 220.0
+_FOV_H = np.radians(87.0)
+_FOV_V = 2 * np.arctan((_IMG_H / _IMG_W) * np.tan(_FOV_H / 2))
+_FX = _IMG_W / (2 * np.tan(_FOV_H / 2))
+_FY = _IMG_H / (2 * np.tan(_FOV_V / 2))
+_CX, _CY = _IMG_W / 2, _IMG_H / 2
+_CAM_STATIC = np.array([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])  # Rx(180): 하방
+
+
+def _quat_to_R(qw, qx, qy, qz):
+    return np.array([
+        [1-2*(qy*qy+qz*qz), 2*(qx*qy-qz*qw),   2*(qx*qz+qy*qw)],
+        [2*(qx*qy+qz*qw),   1-2*(qx*qx+qz*qz), 2*(qy*qz-qx*qw)],
+        [2*(qx*qz-qy*qw),   2*(qy*qz+qx*qw),   1-2*(qx*qx+qy*qy)]])
+
+
+def backproject_marker(cx_px, cy_px, pose):
+    """마커 픽셀과 드론 pose(위치+자세)로 마커의 지면 월드 좌표 (x,y) 계산.
+    드론 위치·자세와 무관하게 마커 실제 위치 복원. 실패 시 None."""
+    p = pose.pose.position
+    o = pose.pose.orientation
+    nx = (cx_px - _CX) / _FX
+    ny = (cy_px - _CY) / _FY
+    pc = np.array([-ny, nx, 1.0])
+    pc /= np.linalg.norm(pc)
+    R = _quat_to_R(o.w, o.x, o.y, o.z) @ _CAM_STATIC
+    uE = R @ pc
+    if uE[2] >= -1e-9:
+        return None
+    k = -p.z / uE[2]
+    if k < 0:
+        return None
+    return float(p.x + k * uE[0]), float(p.y + k * uE[1])
+
+
 
 CPX_HEADER_SIZE = 4
 IMG_HEADER_MAGIC = 0xBC
@@ -165,7 +203,8 @@ class ArucoDetectorNode(Node):
         msg.header.frame_id = self.drone
         msg.drone = self.drone
         if self.latest_pose is not None:
-            msg.drone_pose = self.latest_pose
+            # 아래에서 위치를 덮어쓰므로 원본(self.latest_pose)을 건드리지 않게 복사한다.
+            msg.drone_pose = copy.deepcopy(self.latest_pose)
 
         if ids is not None:
             for marker_corners, marker_id in zip(corners, ids.flatten()):
@@ -178,7 +217,17 @@ class ArucoDetectorNode(Node):
                 det.cx = float(center[0])
                 det.cy = float(center[1])
                 det.size_px = float(np.mean(edges))
+                # 역투영: 마커 실제 지면 좌표 (드론 pose 있을 때만)
+                if self.latest_pose is not None:
+                    proj = backproject_marker(det.cx, det.cy, self.latest_pose)
+                    if proj is not None:
+                        det.world_x, det.world_y = proj
                 msg.markers.append(det)
+
+        if (len(msg.markers) == 1
+                and (msg.markers[0].world_x != 0.0 or msg.markers[0].world_y != 0.0)):
+            msg.drone_pose.pose.position.x = float(msg.markers[0].world_x)
+            msg.drone_pose.pose.position.y = float(msg.markers[0].world_y)
 
         self.pub.publish(msg)
 
@@ -192,9 +241,28 @@ class ArucoDetectorNode(Node):
         if self.display:
             disp = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
             if ids is not None:
-                cv2.aruco.drawDetectedMarkers(disp, corners, ids)
-            disp = cv2.resize(disp, None, fx=1.0, fy=1.0,
-                              interpolation=cv2.INTER_NEAREST)
+                # ids 를 넘기지 않으면 외곽선만 그린다 (기본 파란 ID 글씨 억제).
+                # ID 는 아래에서 world 좌표와 묶어 한 번만 표시.
+                cv2.aruco.drawDetectedMarkers(disp, corners)
+            # 화면 중심 = 드론 바로 아래 지점 (하방 카메라)
+            hh, ww = disp.shape[:2]
+            cv2.drawMarker(disp, (ww // 2, hh // 2), (0, 255, 255),
+                           cv2.MARKER_CROSS, 18, 1)
+            if self.latest_pose is not None:
+                dx = self.latest_pose.pose.position.x
+                dy = self.latest_pose.pose.position.y
+                cv2.putText(disp, f"drone ({dx:.2f},{dy:.2f})",
+                            (ww // 2 + 10, hh // 2 - 6),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+            # 각 마커: 계산된 world 좌표 표시
+            for m in msg.markers:
+                px, py = int(m.cx), int(m.cy)
+                cv2.circle(disp, (px, py), 4, (0, 0, 255), -1)
+                cv2.putText(disp, f"ID: {m.id}({m.world_x:.2f}, {m.world_y:.2f})",
+                            (px + 6, py - 6), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.45, (0, 0, 255), 1)
+            disp = cv2.resize(disp, None, fx=0.7, fy=0.7,
+                              interpolation=cv2.INTER_AREA)
             cv2.imshow(f'aruco {self.drone}', disp)
             cv2.waitKey(1)
 

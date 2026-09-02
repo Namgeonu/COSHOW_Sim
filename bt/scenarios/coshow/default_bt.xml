@@ -36,8 +36,8 @@
                   <SetLed robot="all" color="blue"/>
                   <Parallel success_count="3">
                     <ReactiveFallback>
-                      <IsLimoAt robot="limo_a" x="-3.5" y="-2.0"/>
-                      <LimoNavigateTo robot="limo_a" x="-3.5" y="-2.0" yaw="0.0"/>
+                      <IsLimoAt robot="limo_a" x="-4.0" y="2.0"/>
+                      <LimoNavigateTo robot="limo_a" x="-4.0" y="2.0" yaw="0.0"/>
                     </ReactiveFallback>
                     <ReactiveFallback>
                       <AreDronesReturn robots="cf_a"/>
@@ -77,12 +77,12 @@
           <SetLed robot="all" color="off"/>
           <Parallel success_count="3">
             <ReactiveFallback>
-              <IsLimoAt robot="limo_a" x="-3.5" y="-2.0"/>
-              <LimoNavigateTo robot="limo_a" x="-3.5" y="-2.0" yaw="0.0"/>
+              <IsLimoAt robot="limo_a" x="-4.0" y="2.0"/>
+              <LimoNavigateTo robot="limo_a" x="-4.0" y="2.0" yaw="0.0"/>
             </ReactiveFallback>
             <ReactiveFallback>
-              <IsLimoAt robot="limo_b" x="-3.5" y="-3.0"/>
-              <LimoNavigateTo robot="limo_b" x="-3.5" y="-3.0" yaw="0.0"/>
+              <IsLimoAt robot="limo_b" x="-4.0" y="-2.0"/>
+              <LimoNavigateTo robot="limo_b" x="-4.0" y="-2.0" yaw="0.0"/>
             </ReactiveFallback>
             <ReactiveFallback>
               <AreDronesReturn robots="cf_a,cf_b,cf_c,cf_d"/>

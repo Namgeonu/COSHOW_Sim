@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """COSHOW LIMO GT(Ground-Truth) odom 플러그인.
 
-방법 2: 드론 cf_node 와 동일한 패턴.
+드론 cf_node 와 동일한 패턴.
 webots_ros2_control(바퀴 구동) 옆에 이 커스텀 플러그인을 함께 붙여,
 plugin 내부에서 getDevice 로 gps(위치) + inertial_unit(방향)을 직접 읽어
 계산 없이 정확한 odom + odom->base_link TF 를 발행한다.
 
-- getDevice 는 플러그인 내부 Webots API 접근이라, device 태그와 달리
-  webots_ros2_control 의 센서노출 제약을 받지 않음 (드론에서 검증된 방식).
-- InertialUnit 은 quaternion 을 그대로 주므로 방향 계산이 전혀 없음.
+InertialUnit 은 quaternion 을 그대로 주므로 방향 계산이 전혀 없음.
 """
 
 import math

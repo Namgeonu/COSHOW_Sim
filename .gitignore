@@ -36,3 +36,6 @@ _archive/
 
 # py_bt_ros vendored: 파이썬 캐시만 제외
 bt/**/__pycache__/
+
+# Webots 자동 생성 썸네일
+.*.jpg

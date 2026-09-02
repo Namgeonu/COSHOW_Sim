@@ -1,8 +1,7 @@
 """COSHOW 중앙 제어 BT 노드 (py_bt_ros 시나리오 패키지).
 
-설계 원칙
-- 블랙보드 단일 작성자: UpdateBlackboard 가 매 tick 토픽에서 '사실'을 기록.
-  조건 노드는 읽기만, 액션 노드는 자기가 낸 '명령 흔적'만 기록.
+- 블랙보드 단일 작성자: UpdateBlackboard 가 매 tick 토픽기반 정보 기록.
+
 - 모든 이동은 ReactiveFallback(조건, 액션) 으로 가드 → 서비스 재호출 방지, pose 감시 도착 판정.
 - 시각은 BT 프로세스의 단조 시계(time.monotonic) 로 통일 (/clock 부재, 메시지 stamp 는 비교에 쓰지 않음).
 
@@ -12,7 +11,7 @@
   detections[drone]        : 최신 MarkerDetections (원시)
   mission_marker           : {found, id, drone, pose, t}
   target_id                : mission id - offset (None 이면 미확정)
-  target_marker            : {found, drone, pose(P_N), t}   # 최초 1회 latch, pose 는 재검출로 갱신
+  target_marker            : {found, drone, pose(P_N), t}   # 최초 1회 latch. pose 는 이후 갱신 안 함
   target_seen_now[drone]   : 마지막으로 target 을 본 시각
   target_confirmed         : 재검출(또는 타임아웃) 확정 여부
   finder                   : 목표 위에 배치된 드론
@@ -240,15 +239,16 @@ class UpdateBlackboard(ConditionWithROSTopics):
                 bb['mission_marker'] = dict(mission_ev, found=True)
                 bb['target_id'] = int(mission_ev['id']) - int(C['marker_id_offset'])
 
-        # [타겟 마커] 발신 ∈ searchers, id == target_id (콜백 필터). 최초 1회 latch, pose 는 최신으로 갱신
+        # [타겟 마커] 발신 ∈ searchers, id == target_id (콜백 필터). 최초 1회만 latch (P_N 고정)
         for ev in target_evs:
             if ev['drone'] not in SEARCHERS and ev['drone'] != bb.get('finder'):
                 continue
             if not bb['target_marker']['found']:
                 bb['target_marker'] = dict(ev, found=True)
                 bb['finder'] = ev['drone']
-            else:
-                bb['target_marker'].update(pose=ev['pose'], t=ev['t'], drone=ev['drone'])
+                # P_N 은 이 순간 확정하고 이후 갱신하지 않는다. 갱신하면
+                # CatchTarget 의 목표가 매 tick 흔들려 go_to 가 재발행되고,
+                # 궤적이 t=0 으로 리셋되어 감속 구간에 도달하지 못한다.
             # [재검출 확정] finder 가 P_N 도착 이후의 검출
             fa = bb['drone_arrived'].get(bb.get('finder'))
             if fa is not None and ev['t'] >= fa['t'] and ev['drone'] == bb.get('finder'):
@@ -410,7 +410,6 @@ class IsLimoAt(BBCondition):
     """LIMO 도착: Nav2 액션이 SUCCEEDED 를 반환한 기록(bb['limo_arrived'], LimoNavigateTo 가 기록)만 인정.
 
     pose 는 보지 않는다 — LIMO 는 Nav2 액션이 완료를 보고하므로 그 결과가 유일한 도착 기준.
-    (드론은 서비스라 완료 보고가 없어 IsDroneAt 이 pose 로 감독한다.)
     기록의 goal 이 이 노드의 목표와 같아야 한다 (limo_b: P_N 도착 ≠ base 도착).
     """
 
@@ -648,8 +647,9 @@ class _MultiDroneAction(Node):
         req.duration = _dur(float(C['durations']['takeoff']))
         return self._send(bb, robot, 'takeoff', req, (req.height,))
 
-    def _goto(self, bb, robot, gx, gy, gz, yaw=0.0):
-        dur = _goto_duration(bb, robot, gx, gy)
+    def _goto(self, bb, robot, gx, gy, gz, yaw=0.0, duration=None):
+        # duration 을 주면 거리 기반 short/long 선택을 건너뛴다 (CatchTarget 전용).
+        dur = float(duration) if duration is not None else _goto_duration(bb, robot, gx, gy)
         return self._send(bb, robot, 'go_to', _goto_request(gx, gy, gz, yaw, dur),
                           (round(gx, 3), round(gy, 3), round(gz, 3)))
 
@@ -801,6 +801,7 @@ class CatchTarget(_MultiDroneAction):
     def __init__(self, name, agent):
         super().__init__(name, agent)
         self._since = None
+        self._sent_goal = {}     # finder -> 실제로 보낸 목표 (finder 당 1회만 발행)
 
     async def run(self, agent, bb):
         pn = bb.get('P_N')
@@ -816,15 +817,23 @@ class CatchTarget(_MultiDroneAction):
         if bb.get('finder') not in cands:
             bb['finder'] = min(cands, key=lambda d: _dist2(bb['pose'][d]['x'], bb['pose'][d]['y'], gx, gy))
         f = bb['finder']
-        self._goto(bb, f, gx, gy, gz)
-        # 도착(hold) 판정 → 재검출 게이팅용 시각 기록
-        if self._at(bb, f, gx, gy, gz):
+        # 명령은 finder 당 1회만. 이후 P_N 이 갱신돼도 재발행하지 않는다.
+        # (매 tick 재발행하면 go_to 궤적이 t=0 으로 리셋되어 감속 구간에 못 간다)
+        # 서비스 미준비로 실패하면 기록하지 않아 다음 tick 에 다시 시도한다.
+        if f not in self._sent_goal and self._goto(bb, f, gx, gy, gz,
+                                                   duration=float(C['durations']['capture'])):
+            self._sent_goal[f] = (gx, gy, gz)
+        # 도착(hold) 판정 → 재검출 게이팅용 시각 기록.
+        # 기준은 "실제로 보낸 목표". 갱신되는 P_N 으로 재면 드론이 선 자리와
+        # 어긋나 도착 판정이 영영 안 나고 확정·타임아웃이 둘 다 막힌다.
+        tgt = self._sent_goal.get(f)
+        if tgt is not None and self._at(bb, f, *tgt):
             if self._since is None:
                 self._since = bb['now']
             if bb['now'] - self._since >= float(TOL['drone_hold']):
                 arr = bb['drone_arrived'].get(f)
-                if arr is None or _dist2(arr['goal'][0], arr['goal'][1], gx, gy) > 1e-3:
-                    bb['drone_arrived'][f] = {'goal': (gx, gy), 't': self._since}
+                if arr is None or _dist2(arr['goal'][0], arr['goal'][1], tgt[0], tgt[1]) > 1e-3:
+                    bb['drone_arrived'][f] = {'goal': (tgt[0], tgt[1]), 't': self._since}
         else:
             self._since = None
         self.status = Status.RUNNING
@@ -833,6 +842,7 @@ class CatchTarget(_MultiDroneAction):
     def halt(self):
         super().halt()
         self._since = None
+        self._sent_goal = {}
 
 
 # ═════════════════════════════════════════════════════════════════════════════

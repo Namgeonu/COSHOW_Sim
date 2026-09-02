@@ -1,6 +1,6 @@
 """COSHOW 방향2 1단계: 드론별 제어 노드 (webots_ros2_driver 플러그인).
 
-CrazyChoir 뼈대 + 우리 검증 자산(CrazyflieSIL, dbg22 믹싱, 시정수)을 결합.
+CrazyChoir 뼈대 + 검증한 (CrazyflieSIL, dbg22 믹싱, 시정수)을 결합.
 각 드론이 별도 프로세스로 이 플러그인을 실행 → cffirmware static 독립.
 
 매 스텝:
@@ -11,8 +11,6 @@ CrazyChoir 뼈대 + 우리 검증 자산(CrazyflieSIL, dbg22 믹싱, 시정수)�
   5. 믹싱(yaw반전, /800) + 시정수   # dbg22 로직 + Gazebo 시정수
   6. 자기 모터 setVelocity
 
-1단계 범위: cf_a 단독 비행 검증. goTo/takeoff를 노드가 직접 서비스로 받음(서버 없이).
-서버 중계는 2단계.
 
 월드 설정: cf_a controller "<extern>", 이 플러그인을 webots_ros2_driver로 로드.
 PYTHONPATH 필요:
