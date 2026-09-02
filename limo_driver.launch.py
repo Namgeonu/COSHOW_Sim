@@ -47,7 +47,6 @@ def make_nav2_params(ns):
         s = _re.sub(rf'(?m)^{_k}:', f'/{ns}/{_k}:', s)
     s = s.replace('robot_base_frame: base_link', f'robot_base_frame: {ns}/base_link')
     s = s.replace('global_frame: odom', f'global_frame: {ns}/odom')
-    s = s.replace('local_frame: odom', f'local_frame: {ns}/odom')
     s = s.replace('odom_topic: /odom', f'odom_topic: /{ns}/odom')
     s = s.replace('topic: /scan', f'topic: /{ns}/scan')
     out = f'/tmp/{ns}_nav2_params.yaml'
@@ -79,7 +78,10 @@ def make_limo_stack(ns):
             ROS2CONTROL,
         ],
         remappings=[
-            (f'/{ns}/diffdrive_controller/cmd_vel', f'/{ns}/cmd_vel'),
+            # Humble: use_stamped_vel=false 이면 DiffDriveController 가 구독하는
+            # 이름이 ~/cmd_vel 이 아니라 ~/cmd_vel_unstamped (geometry_msgs/Twist).
+            # Jazzy 는 ~/cmd_vel (TwistStamped). webots_ros2 공식 예제와 같은 배선.
+            (f'/{ns}/diffdrive_controller/cmd_vel_unstamped', f'/{ns}/cmd_vel'),
             (f'/{ns}/diffdrive_controller/odom', f'/{ns}/_unused_odom_encoder'),
             (f'/{ns}/laser', f'/{ns}/scan'),
         ],
@@ -101,7 +103,10 @@ def make_limo_stack(ns):
         package='tf2_ros', executable='static_transform_publisher',
         namespace=ns, output='screen',
         parameters=[{'use_sim_time': True}],
-        arguments=['0', '0', '0', '0', '0', '0', 'map', f'{ns}/odom'])
+        # Humble 정석: 위치인자는 deprecated ("Old-style arguments are deprecated")
+        arguments=['--x', '0', '--y', '0', '--z', '0',
+                   '--roll', '0', '--pitch', '0', '--yaw', '0',
+                   '--frame-id', 'map', '--child-frame-id', f'{ns}/odom'])
 
     use_sim = {'use_sim_time': True}
     nav2_nodes = [

@@ -2,26 +2,27 @@
 # COSHOW 2단계 Nav2 파라미터 (LIMO 단독, 빈 지도, 차동구동)
 # ==========================================================================
 #
-# ⚠️⚠️⚠️ 버전 이식 필수 확인 (Ubuntu 22.04 / Humble 적용 시) ⚠️⚠️⚠️
+# 대상: ROS 2 Humble / Ubuntu 22.04.  (Jazzy 기준에서 이식 완료)
 #
-# 이 파일은 ROS2 Jazzy 기준입니다. Humble(ad15/새 PC)로 옮길 때 아래를 반드시 확인:
+# Jazzy -> Humble 로 바뀐 부분. 아래 값은 모두 Humble 설치본에서 확인한 것:
 #
-# [핵심] enable_stamped_cmd_vel 파라미터 (controller_server 안):
-#   - Jazzy: 기본값 false(일반 Twist). Jazzy의 DiffDriveController는
-#            TwistStamped를 요구하므로, 여기서 true로 명시해 양쪽을 TwistStamped로 통일함.
-#   - Kilted 이상: 기본값이 이미 TwistStamped.
-#   - Humble: 이 파라미터가 아예 없을 가능성이 높음. Humble Nav2는 일반 Twist를 뿜고
-#            Humble DiffDriveController도 일반 Twist를 받으므로, 양쪽이 자동으로 맞음.
+# [1] enable_stamped_cmd_vel : Jazzy 전용 파라미터라 Humble 에는 없음 -> 삭제함.
+#     Humble Nav2 는 일반 Twist 를 /cmd_vel 로 발행하고,
+#     Humble DiffDriveController 는 use_stamped_vel: false 에서 일반 Twist 를 받으므로
+#     "타입"은 저절로 맞는다. 다만 그때 구독하는 토픽 "이름"이 ~/cmd_vel 이 아니라
+#     ~/cmd_vel_unstamped 로 바뀐다 -> limo_driver.launch.py 의 remap 이 이어준다.
+#     (webots_ros2 공식 예제 turtlebot/tiago/epuck/husarion 과 동일한 배선)
 #
-# [Humble 이식 절차]
-#   1. Humble에서 `ros2 param describe /controller_server enable_stamped_cmd_vel` 로 존재 확인
-#   2. 없으면 아래 enable_stamped_cmd_vel 줄을 삭제 (Humble은 Twist로 자동 통일)
-#   3. 있으면 Humble DiffDriveController가 받는 타입 확인 후 일치시킬 것
+# [2] progress_checker_plugin : Humble 은 단수형 문자열. (Jazzy 는 복수형 리스트)
 #
-# [대안/폴백] 버전 독립성이 필요하면 twist_stamper 노드(방법 1)로 전환.
-#   twist_stamper는 Nav2 출력을 항상 TwistStamped로 변환하므로 버전 무관하게 동작.
-#   Jazzy/Humble 양쪽을 장기 지원해야 한다면 방법 1이 더 안전할 수 있음.
-#   (twist_stamper는 이미 양쪽 환경에 설치 검증됨)
+# [3] behavior_server : Humble 은 costmap_topic / footprint_topic 을 하나씩만 받는다.
+#     (Jazzy 의 local_costmap_topic / global_costmap_topic / local_frame 없음)
+#     또 여기서의 global_frame 은 "복구 동작이 도는 기준 프레임"이라 map 이 아니라 odom.
+#
+# [4] 플러그인 등록 이름 : Humble 은 슬래시 표기 (nav2_behaviors/Spin,
+#     nav2_navfn_planner/NavfnPlanner). Jazzy 는 콜론 표기.
+#     단 nav2_controller::SimpleGoalChecker 계열과 dwb_core::DWBLocalPlanner 는
+#     plugins.xml 에 name 속성이 없어 type 이 곧 이름 -> Humble 도 콜론 표기 그대로.
 #
 # ==========================================================================
 
@@ -38,14 +39,10 @@ bt_navigator:
 controller_server:
   ros__parameters:
     controller_frequency: 20.0
-    # ⚠️ 버전 이식 핵심 (위 헤더 주석 참조):
-    # Jazzy에서 Nav2가 TwistStamped를 뿜게 하여 DiffDriveController와 타입 일치.
-    # Humble 이식 시 이 줄 재검토 필수.
-    enable_stamped_cmd_vel: true
     min_x_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
-    progress_checker_plugins: ["progress_checker"]
+    progress_checker_plugin: "progress_checker"   # Humble: 단수형 문자열
     goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
     progress_checker:
@@ -162,7 +159,7 @@ planner_server:
     expected_planner_frequency: 20.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
+      plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
       use_astar: false
       allow_unknown: true
@@ -170,19 +167,20 @@ planner_server:
 # --- Behavior Server: 복구 동작 (후진, 회전 등) ---
 behavior_server:
   ros__parameters:
-    local_costmap_topic: local_costmap/costmap_raw
-    global_costmap_topic: global_costmap/costmap_raw
-    local_frame: odom
-    global_frame: map
+    # Humble 은 local/global 을 나누지 않고 costmap 하나만 받는다.
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    # Humble 의 global_frame 은 "복구 동작이 도는 기준 프레임" -> map 이 아니라 odom.
+    # (launch 의 make_nav2_params 가 {ns}/odom 으로 치환해준다)
+    global_frame: odom
     robot_base_frame: base_link
-    # ⚠️ 이 노드도 버전에 따라 cmd_vel 타입 영향받음 (위 헤더 참조)
-    enable_stamped_cmd_vel: true
     behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+    # Humble pluginlib 등록 이름은 슬래시 표기 (Jazzy 는 :: 표기)
     spin:
-      plugin: "nav2_behaviors::Spin"
+      plugin: "nav2_behaviors/Spin"
     backup:
-      plugin: "nav2_behaviors::BackUp"
+      plugin: "nav2_behaviors/BackUp"
     drive_on_heading:
-      plugin: "nav2_behaviors::DriveOnHeading"
+      plugin: "nav2_behaviors/DriveOnHeading"
     wait:
-      plugin: "nav2_behaviors::Wait"
+      plugin: "nav2_behaviors/Wait"

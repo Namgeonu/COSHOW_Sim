@@ -1,6 +1,6 @@
 """COSHOW A-1 서버: 실물 crazyswarm2 서버 흉내 (radio -> 내부 서비스 전달).
 
-실물 crazyswarm2 서버와 동일한 바깥 인터페이스를 노출한다:
+실물 crazyswarm2 서버와 동일한 바깥 인터페이스를 노출:
   - /cf_a/takeoff, /cf_a/go_to, /cf_a/land  (개별)
   - /all/takeoff, /all/go_to, /all/land     (브로드캐스트)
 실물과 유일한 차이: radio(CRTP) 대신 내부 서비스(/cf_a/_impl/...)로 각 드라이버에 전달.
@@ -12,8 +12,7 @@ BT는 이 서버에만 명령을 보내면 된다 (실물이든 시뮬이든 동
   ros2 run <pkg> coshow_server --ros-args -p robots:="['cf_a','cf_b','cf_c','cf_d']"
 또는 launch에서 parameters=[{'robots': [...]}]
 
-pose는 각 드라이버가 /cf_a/pose로 직접 발행하므로 서버가 중계하지 않아도 BT가 받는다.
-(실물에서는 서버가 pose를 발행하지만, 시뮬에선 드라이버가 직접 발행해도 인터페이스는 동일)
+pose는 각 드라이버가 /cf_a/pose로 직접 발행
 """
 import rclpy
 from rclpy.node import Node
@@ -75,7 +74,7 @@ class CoshowServer(Node):
             if cli.service_is_ready():
                 cli.call_async(request)   # 비동기 전달 (드라이버가 실행)
             else:
-                self.get_logger().warn(f'[{n}] _impl/takeoff 아직 준비 안 됨')
+                self.get_logger().warning(f'[{n}] _impl/takeoff 아직 준비 안 됨')
         self.get_logger().info(f'[{name}] takeoff -> 전달 (h={request.height})')
         return response
 
@@ -85,7 +84,7 @@ class CoshowServer(Node):
             if cli.service_is_ready():
                 cli.call_async(request)
             else:
-                self.get_logger().warn(f'[{n}] _impl/go_to 아직 준비 안 됨')
+                self.get_logger().warning(f'[{n}] _impl/go_to 아직 준비 안 됨')
         self.get_logger().info(
             f'[{name}] go_to -> 전달 '
             f'({request.goal.x},{request.goal.y},{request.goal.z})')
