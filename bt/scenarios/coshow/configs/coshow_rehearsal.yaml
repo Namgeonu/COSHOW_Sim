@@ -1,0 +1,115 @@
+# COSHOW 실기체 약식 리허설 설정 (4x4 m 실내 테스트장, 라이트하우스 + crazyswarm2)
+# 실행: python3 main.py --config scenarios/coshow/configs/coshow_rehearsal.yaml
+#
+# coshow_sim.yaml 과의 차이 (bt_nodes.py 는 동일한 것을 쓴다):
+#   - 좌표계 축소: 10x10 시뮬 아레나 -> 4x4 m 실습장. 원점 (0,0) 은 동일.
+#   - 리모 부재:   실기체가 없어 tools/fake_limo.py 가 odom + navigate_to_pose 를 대신한다.
+#                  BT 흐름 검증이 목적이므로 리모 노드를 트리에서 빼지 않는다.
+#   - 고도 분리:   충돌 우려로 탐색 드론마다 고도를 나눈다 (drones.*.altitudes 재정의).
+#   - 탐색 약식:   레인 1개 = x축 왕복만. lane_spacing 을 구역 y폭과 같게 두면 레인이 1개가 된다.
+scenario:
+  environment: scenarios.coshow
+
+agent:
+  namespaces: ""
+  # default_bt.xml 에서 한 곳만 다르다: cf230 이 착륙한 뒤에 탐색을 시작한다.
+  # 좁은 실습장에서 cf230 복귀(0.5)와 cf231 탐색(0.4)이 겹치는 것을 막는다.
+  behavior_tree_xml: "rehearsal_bt.xml"
+
+bt_runner:
+  bt_tick_rate: 10.0
+  bt_visualiser:
+    enabled: True
+    screen_width: 700
+    screen_height: 520
+    direction: Vertical
+  profiling_mode: False
+
+# ---------------- COSHOW 시나리오 파라미터 (bt_nodes.py가 읽음) ----------------
+coshow:
+
+  # Phase 1: 관측
+  observe_drone: cf230
+  observe_point: {x: 0.0, y: 0.0, yaw: 1.57}     # 실습장 중앙. 미션 마커를 사람이 여기 놓는다
+  mission_marker_ids: [11, 14]
+  marker_id_offset: 10              # target_id = mission_id - 10
+  confirm_frames: 3
+
+  # Phase 2/3: 탐색·구조
+  searchers: [cf231, cf232, cf233]
+  seen_now_window: 0.5
+  recheck_timeout: 15.0
+  rescue_sec: 10.0
+
+  # base 는 스폰 위치이자 복귀 목적지.
+  # altitudes/durations 를 드론별로 재정의하면 전역 블록보다 우선한다 (_param 2단 구조).
+  # 지금은 고도만 드론별로 나누고, duration 은 네 대 모두 전역값을 쓴다.
+  drones:
+    # 관측 담당. 이륙 1.0 -> (0,0,1.0) 관측 -> 복귀는 0.5 로 낮춰 착륙
+    cf230:
+      base: [-1.0, 0.0]
+      altitudes: {takeoff: 1.0, observe: 1.0, capture: 1.0, return: 0.5}
+    # 탐색 3대. 고도를 0.4 / 0.8 / 1.2 로 나눠 x·y 추정이 흔들려도 충돌하지 않게 한다.
+    # 복귀 때도 고도를 유지한다 (내려오면 서로 같은 평면에서 만난다).
+    cf231:
+      base: [-1.5, 1.5]
+      altitudes: {takeoff: 0.4, search: 0.4, capture: 0.4, return: 0.4}
+    cf232:
+      base: [-1.5, 0.0]
+      altitudes: {takeoff: 0.8, search: 0.8, capture: 0.8, return: 0.8}
+    cf233:
+      base: [-1.5, -1.5]
+      altitudes: {takeoff: 1.2, search: 1.2, capture: 1.2, return: 1.2}
+
+  # 실기체가 없다. tools/fake_limo.py 가 이 토픽과 navigate_to_pose 액션을 제공한다.
+  # base 는 default_bt.xml 의 LimoNavigateTo 복귀 좌표와 일치해야 IsMissionComplete 가 성립한다.
+  limos:
+    limo_a: {base: [-4.0, 2.0], base_yaw: 0.0, pose_topic: /limo_a/odom}
+    limo_b: {base: [-4.0, -2.0], base_yaw: 0.0, pose_topic: /limo_b/odom}
+
+  search:
+    stagger_sec: 3.0
+    wp_tol: 0.2
+    lane_axis: y
+    # lane_spacing 을 각 구역의 y폭과 같게 두면 n_lanes = 1 이 되어
+    # 레인 중앙 y 를 고정한 채 x 만 왕복한다 (지그재그 없음).
+    lane_spacing: 0.4
+    zones:
+      cf231: {x: [-1.5, 1.5], y: [ 1.3,  1.7]}   # 레인중앙 y = +1.5
+      cf232: {x: [-1.5, 1.5], y: [-0.2,  0.2]}   # 레인중앙 y =  0.0
+      cf233: {x: [-1.5, 1.5], y: [-1.7, -1.3]}   # 레인중앙 y = -1.5
+
+  tolerances:
+    drone_at: 0.15
+    drone_hold: 1.0
+    limo_at: 0.3
+    # ⚠️ 시뮬의 0.4 를 그대로 쓰면 안 된다. cf231 의 탐색 고도가 정확히 0.4 라
+    # "아직 지상" 으로 판정되어 Search 가 이륙만 무한 반복한다.
+    airborne_z: 0.25
+    landed_z: 0.06
+
+  # 전역 기본값. 드론별 재정의가 없는 키만 여기서 읽힌다 (지금은 전부 여기서 읽힌다).
+  durations:
+    takeoff: 8.0
+    land: 8.0
+    goto_short: 5.0
+    goto_long: 15.0                 # 최장 이동이 3 m. 완만한 궤적이라 가속 중 기울기가 작다
+    short_dist: 1.0
+    capture: 5.0
+
+  # 전역 기본값. 위 drones.*.altitudes 재정의가 우선한다.
+  altitudes:
+    takeoff: 0.8
+    observe: 1.0
+    search: 0.8
+    capture: 0.8
+    return: 0.6
+
+  # 실기체 안전 점검 (tools/preflight_node.py).
+  # true 면 /preflight/ready 가 True 가 될 때까지 BT 가 아무 명령도 내지 않는다.
+  # ⚠️ Webots 시뮬에는 crazyswarm2 가 없어 그 노드를 띄울 수 없으므로 false.
+  #    실기체로 옮길 때 반드시 true 로 바꿀 것.
+  preflight:
+    required: false
+
+  led_topic_suffix: led

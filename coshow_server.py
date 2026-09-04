@@ -1,18 +1,18 @@
 """COSHOW A-1 서버: 실물 crazyswarm2 서버 흉내 (radio -> 내부 서비스 전달).
 
 실물 crazyswarm2 서버와 동일한 바깥 인터페이스를 노출:
-  - /cf_a/takeoff, /cf_a/go_to, /cf_a/land  (개별)
+  - /cf230/takeoff, /cf230/go_to, /cf230/land  (개별)
   - /all/takeoff, /all/go_to, /all/land     (브로드캐스트)
-실물과 유일한 차이: radio(CRTP) 대신 내부 서비스(/cf_a/_impl/...)로 각 드라이버에 전달.
+실물과 유일한 차이: radio(CRTP) 대신 내부 서비스(/cf230/_impl/...)로 각 드라이버에 전달.
 
 BT는 이 서버에만 명령을 보내면 된다 (실물이든 시뮬이든 동일).
-  BT --/cf_a/go_to--> [이 서버] --/cf_a/_impl/go_to--> [cf_node 드라이버] --> Webots
+  BT --/cf230/go_to--> [이 서버] --/cf230/_impl/go_to--> [cf_node 드라이버] --> Webots
 
 로봇 목록은 파라미터(robots)로 받는다. 예:
-  ros2 run <pkg> coshow_server --ros-args -p robots:="['cf_a','cf_b','cf_c','cf_d']"
+  ros2 run <pkg> coshow_server --ros-args -p robots:="['cf230','cf231','cf232','cf233']"
 또는 launch에서 parameters=[{'robots': [...]}]
 
-pose는 각 드라이버가 /cf_a/pose로 직접 발행
+pose는 각 드라이버가 /cf230/pose로 직접 발행
 """
 import rclpy
 from rclpy.node import Node
@@ -28,7 +28,7 @@ class CoshowServer(Node):
                          parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         # 로봇 목록 (파라미터)
-        self.declare_parameter('robots', ['cf_a', 'cf_b', 'cf_c', 'cf_d'])
+        self.declare_parameter('robots', ['cf230', 'cf231', 'cf232', 'cf233'])
         self.robots = self.get_parameter('robots').value
         self.get_logger().info(f'[coshow_server] robots={list(self.robots)}')
 

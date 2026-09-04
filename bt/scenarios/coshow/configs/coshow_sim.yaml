@@ -20,25 +20,23 @@ bt_runner:
 coshow:
 
   # Phase 1: 관측
-  observe_drone: cf_a
+  observe_drone: cf230
   observe_point: {x: 0.0, y: 0.0, yaw: 1.57}     # limo_a 관측 지점 (P0)
-  observe_z: 1.5
   mission_marker_ids: [11, 14]      # 참관자 마커 ID 범위 (포함)
   marker_id_offset: 10              # target_id = mission_id - 10
   confirm_frames: 3                 # 연속 검출 프레임 수 (확정 조건)
 
-  # Phase 2/3: 탐색·구조   (고도: 이륙·탐색·호버 1.5, 복귀 이동만 return_z 1.0)
-  searchers: [cf_b, cf_c, cf_d]
+  # Phase 2/3: 탐색·구조
+  searchers: [cf231, cf232, cf233]
   seen_now_window: 0.5              # "지금 target을 보고 있다" 판정 창(초)
   recheck_timeout: 15.0             # 재검출 대기 타임아웃(초). 초과 시 P_N 그대로 확정
   rescue_sec: 10.0                  # limo_b 도착 후 구조 대기(초)
-  hover_z_on_target: 1.5            # 재이동/호버 고도 (전 구간 고도 1.5 고정)
 
   drones:
-    cf_a: {base: [-4.2, 0.6], return_z: 1.0}
-    cf_b: {base: [-4.2, 0.2], return_z: 1.0}
-    cf_c: {base: [-4.2, -0.2], return_z: 1.0}
-    cf_d: {base: [-4.2, -0.6], return_z: 1.0}
+    cf230: {base: [-4.2, 0.6]}
+    cf231: {base: [-4.2, 0.2]}
+    cf232: {base: [-4.2, -0.2]}
+    cf233: {base: [-4.2, -0.6]}
 
   limos:
     # base 는 "복귀 목적지". IsMissionComplete 가 이 값으로 완료를 판정하므로
@@ -52,9 +50,10 @@ coshow:
     wp_tol: 0.2
     lane_axis: y                    # 레인을 y 로 쪼개고 x축 왕복 (드론이 x=-4.2 대기 라인에서 진입)
     zones:                          # 6x6 잔디를 y축 기준 2m 폭 3구역으로 분할, 각 구역 4레인(폭 0.5)
-      cf_b: {x: [-3.0, 3.0], y: [ 1.0,  3.0], z: 1.5}   # y+ (대기 y=0.2) 레인중앙 y: 1.25,1.75,2.25,2.75
-      cf_c: {x: [-3.0, 3.0], y: [-1.0,  1.0], z: 1.5}   # 가운데(대기 y=-0.2) 레인중앙 y: -0.75,-0.25,0.25,0.75
-      cf_d: {x: [-3.0, 3.0], y: [-3.0, -1.0], z: 1.5}   # y- (대기 y=-0.6) 레인중앙 y: -2.75,-2.25,-1.75,-1.25
+                                    # 고도는 altitudes.search 로 통일 (구역별 z 없음)
+      cf231: {x: [-3.0, 3.0], y: [ 1.0,  3.0]}   # y+ (대기 y=0.2) 레인중앙 y: 1.25,1.75,2.25,2.75
+      cf232: {x: [-3.0, 3.0], y: [-1.0,  1.0]}   # 가운데(대기 y=-0.2) 레인중앙 y: -0.75,-0.25,0.25,0.75
+      cf233: {x: [-3.0, 3.0], y: [-3.0, -1.0]}   # y- (대기 y=-0.6) 레인중앙 y: -2.75,-2.25,-1.75,-1.25
 
   tolerances:
     drone_at: 0.15                  # 드론 도착 반경(m)
@@ -71,5 +70,14 @@ coshow:
     goto_long: 20.0                 # 그 외 긴 이동
     short_dist: 1.0                 # 이 거리(m) 이하이면 goto_short (레인 간격 0.5 포함)
     capture: 8.0                    # CatchTarget 전용. 마커 포착 이동은 거리와 무관하게 이 값
-  takeoff: {height: 1.5}
+
+  # 드론 고도(m). 상황마다 값이 다른 것은 의도이며, 정의는 여기 한 곳뿐이다.
+  # XML 에서는 alt="<키이름>" 으로 골라 쓴다 (예: <DroneGoTo alt="observe" .../>).
+  altitudes:
+    takeoff: 1.5                    # 이륙 목표 고도
+    observe: 1.5                    # 관측점 상공 비행
+    search: 1.5                     # 탐색 레인 비행
+    capture: 1.5                    # 마커 포착·호버. alt 미지정 시 기본값
+    return: 1.0                     # 기지 복귀 이동 (탐색 고도와 분리)
+
   led_topic_suffix: led             # stub: /{robot}/led (std_msgs/String)

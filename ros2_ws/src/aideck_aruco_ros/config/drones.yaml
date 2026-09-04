@@ -1,0 +1,48 @@
+# Parameters for aideck_aruco_node.
+#
+# The node name below must match the node name / namespace you launch with.
+# The launch file uses namespace "aideck", so the key is "/aideck/aideck_aruco_node".
+/aideck/aideck_aruco_node:
+  ros__parameters:
+    # "NAME,DECK_IP,LISTEN_PORT[,DECK_PORT]"  - identical format to
+    # multi_aruco_udp_viewer.py --drone
+    # NAME 은 crazyswarm2 의 기체 이름과 반드시 같아야 한다.
+    # 그 이름으로 /<NAME>/pose 를 구독하고 /<NAME>/marker_detections 를 발행한다.
+    # IP 는 각 AI-deck 의 실제 주소로 바꿀 것.
+    drones:
+      - "cf230,192.168.1.211,5001"
+      - "cf231,192.168.1.125,5002"
+      - "cf232,192.168.1.13,5003"
+      - "cf233,192.168.1.14,5004"
+
+    dictionary: "DICT_4X4_50"
+    target_id: -1          # -1 = accept every marker id
+    detect_every: 1        # run the detector on every Nth frame
+
+    # UDP / stream behaviour (same defaults as the original viewer)
+    probe_period: 1.0
+    timeout: 0.2
+    stall_timeout: 3.0
+    rcvbuf_bytes: 0        # 0 = keep the OS default socket buffer
+
+    # Publishing
+    publish_raw: true
+    publish_annotated: true
+    publish_compressed: false
+    jpeg_quality: 80
+    image_qos: "sensor_data"     # "sensor_data" (best effort) or "reliable"
+    frame_id_template: "{name}_camera"
+    queue_depth: 4
+    poll_rate: 100.0
+
+    # Local OpenCV window (off by default for a ROS node)
+    display: false
+    display_scale: 1.6
+    display_rate: 30.0
+
+    # Mirror the original "Found frame=..." lines into rosout
+    log_detections: false
+
+    # Publish compact std_msgs/String lines for terminal checks.
+    # false = only publish when at least one marker is found.
+    publish_empty_text: false

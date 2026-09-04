@@ -34,9 +34,11 @@ from modules.base_bt_nodes_ros import (
     ConditionWithROSTopics, ActionWithROSAction, ActionWithROSService, ActionWithROSTopic,
 )
 
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from builtin_interfaces.msg import Duration as DurationMsg
 from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
@@ -52,6 +54,7 @@ CUSTOM_ACTION_NODES = [
     'SetLed', 'Idle',
 ]
 CUSTOM_CONDITION_NODES = [
+    'IsReady',
     'IsMMFound', 'IsTMFound', 'IsTargetConfirmed',
     'IsMissionComplete', 'IsRescue',
     'IsDroneAt', 'IsDroneAirborne', 'IsDroneLanded', 'AreDronesReturn',
@@ -88,8 +91,35 @@ def _dur(sec):
     return d
 
 
+def _param(block, key, robot=None):
+    """설정값 조회의 단일 출처. 2단 구조로 드론별 재정의를 허용한다.
+
+      drones.<robot>.<block>.<key>  가 있으면 그 값       (드론별 재정의)
+      없으면 <block>.<key>                                (전역 기본값)
+
+    block 이름이 전역 블록 이름과 같아서 어느 값을 덮는지 config 만 봐도 드러난다.
+    robot 을 안 넘기거나 그 드론에 재정의가 없으면 전역값이므로, 재정의를 쓰지 않는
+    시나리오는 동작이 달라지지 않는다. 없는 키는 즉시 KeyError 로 드러낸다.
+    """
+    if robot is not None:
+        per = DRONES.get(robot, {}).get(block, {})
+        if key in per:
+            return float(per[key])
+    return float(C[block][key])
+
+
+def _alt(key, robot=None):
+    """고도(m). altitudes 블록 + drones.<robot>.altitudes 재정의."""
+    return _param('altitudes', key, robot)
+
+
+def _dur_of(key, robot=None):
+    """명령 duration(초). durations 블록 + drones.<robot>.durations 재정의."""
+    return _param('durations', key, robot)
+
+
 def _robots_from_attrs(bb, robots=None, robots_key=None, exclude_key=None):
-    """XML 속성(robots="cf_a,cf_b") 또는 블랙보드 키(robots_key="finder")로 로봇 목록 결정."""
+    """XML 속성(robots="cf230,cf231") 또는 블랙보드 키(robots_key="finder")로 로봇 목록 결정."""
     if robots_key:
         v = bb.get(robots_key)
         lst = [v] if isinstance(v, str) else list(v or [])
@@ -149,6 +179,16 @@ class UpdateBlackboard(ConditionWithROSTopics):
             node.create_subscription(Odometry, cfg['pose_topic'],
                                      lambda m, r=l: self._on_limo_pose(r, m), 10)
 
+        # tools/preflight_node.py 의 실기체 안전 점검 결과. 시뮬에는 그 노드가 없으므로
+        # preflight.required 가 false 면 이 값을 보지 않는다 (IsReady 참조).
+        # 발행 측이 transient_local 이라 BT 가 늦게 떠도 마지막 값을 받는다.
+        self._preflight_ready = False
+        node.create_subscription(
+            Bool, '/preflight/ready', self._on_preflight,
+            QoSProfile(depth=1,
+                       reliability=ReliabilityPolicy.RELIABLE,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
+
         self._target_id_snapshot = None      # 콜백 스레드가 참조할 target_id 사본
 
     # ---- ROS 콜백 (spin 스레드) ----
@@ -156,6 +196,10 @@ class UpdateBlackboard(ConditionWithROSTopics):
         p = msg.pose.position
         with self._lock:
             self._pose[robot] = {'x': p.x, 'y': p.y, 'z': p.z, 't': now()}
+
+    def _on_preflight(self, msg):
+        with self._lock:
+            self._preflight_ready = bool(msg.data)
 
     def _on_limo_pose(self, robot, msg):
         p = msg.pose.pose.position
@@ -186,14 +230,25 @@ class UpdateBlackboard(ConditionWithROSTopics):
                 cnt = cnt + 1 if prev_id == interest else 1
                 self._streak[drone] = (interest, cnt)
                 if cnt >= int(C['confirm_frames']):
-                    ev = {'drone': drone, 'id': interest, 't': t,
-                          'pose': {'x': msg.drone_pose.pose.position.x,
-                                   'y': msg.drone_pose.pose.position.y,
-                                   'z': msg.drone_pose.pose.position.z}}
-                    if drone == C['observe_drone']:
-                        self._mission_event = ev
-                    else:
-                        self._target_events.append(ev)
+                    # interest 로 고른 그 마커의 역투영 좌표를 쓴다. 한 프레임에 마커가
+                    # 여러 개 잡혀도 타겟만 정확히 골라진다.
+                    # (예전에는 msg.drone_pose 를 읽었다. 검출 노드가 거기에 마커 좌표를
+                    #  덮어써 보내는 우회책이었는데, 마커가 2개 이상이면 어느 것인지 몰라
+                    #  덮어쓰기를 건너뛰었고, 그러면 "드론이 서 있던 자리" 가 마커 위치로
+                    #  둔갑해 조용히 엉뚱한 곳으로 갔다.)
+                    # world_x/world_y 가 0 이면 역투영 실패이므로 그 프레임은 버리고
+                    # 다음 프레임에 다시 시도한다. z 는 지면 마커라 역투영이 주지 않아
+                    # 드론 고도를 그대로 쓴다 (CatchTarget 이 어차피 호버 고도로 덮는다).
+                    m = next((k for k in msg.markers if k.id == interest), None)
+                    if m is not None and (m.world_x != 0.0 or m.world_y != 0.0):
+                        ev = {'drone': drone, 'id': interest, 't': t,
+                              'pose': {'x': float(m.world_x),
+                                       'y': float(m.world_y),
+                                       'z': msg.drone_pose.pose.position.z}}
+                        if drone == C['observe_drone']:
+                            self._mission_event = ev
+                        else:
+                            self._target_events.append(ev)
             if tid is not None and tid in ids:
                 self._seen_now[drone] = t
 
@@ -216,6 +271,7 @@ class UpdateBlackboard(ConditionWithROSTopics):
         with self._lock:
             bb['pose'] = {k: dict(v) for k, v in self._pose.items()}
             bb['detections'] = dict(self._det_latest)
+            bb['preflight_ready'] = self._preflight_ready
             mission_ev = self._mission_event
             self._mission_event = None
             target_evs = self._target_events
@@ -230,7 +286,7 @@ class UpdateBlackboard(ConditionWithROSTopics):
             bb['missing_pose'] = missing
             return False
 
-        # [미션 마커 확정] 게이팅: 발신=cf_a, ID 범위(콜백에서 필터), cf_a 가 관측점에 도착한 이후 스탬프
+        # [미션 마커 확정] 게이팅: 발신=cf230, ID 범위(콜백에서 필터), cf230 가 관측점에 도착한 이후 스탬프
         if mission_ev and not bb['mission_marker']['found']:
             arr = bb['drone_arrived'].get(C['observe_drone'])
             ok = arr is not None and _dist2(arr['goal'][0], arr['goal'][1], OBS['x'], OBS['y']) < 0.3 \
@@ -284,6 +340,24 @@ class BBCondition(SyncCondition):
     @staticmethod
     def _st(ok):
         return Status.SUCCESS if ok else Status.FAILURE
+
+
+class IsReady(BBCondition):
+    """실기체 안전 점검 통과 여부. 트리 맨 위에 두어 전체를 막는 관문.
+
+    tools/preflight_node.py 가 /preflight/ready 로 알린다. 그 노드가 칼만 수렴·
+    위치 일치·슈퍼바이저 상태를 확인하고 무장까지 끝낸 뒤에야 True 가 된다.
+    비행 중 이상(통신 두절, 자세 이상, 기체 간 최소거리 위반)이 생기면 False 로
+    내려가고, 그러면 이 조건이 FAILURE 가 되어 BT 가 그 tick 부터 명령을 멈춘다.
+    (명령이 멈춘 뒤 preflight 노드가 착륙시키므로 서로 다투지 않는다.)
+
+    시뮬에는 그 노드가 없다. config 의 preflight.required 가 false 면 항상 통과한다.
+    """
+
+    def _check(self, agent, bb):
+        if not bool(C.get('preflight', {}).get('required', False)):
+            return Status.SUCCESS
+        return self._st(bb.get('preflight_ready', False))
 
 
 class IsMMFound(BBCondition):
@@ -354,9 +428,9 @@ class IsDroneAt(BBCondition):
     """드론이 목표 반경 내에 hold 초 이상 머물면 SUCCESS. 도착 시 bb['drone_arrived'][robot] 기록."""
 
     def __init__(self, name, agent, robot=None, robot_key=None, x=None, y=None, z=None,
-                 target_key=None, tol=None, hold=None, **kw):
+                 alt=None, target_key=None, tol=None, hold=None, **kw):
         super().__init__(name, agent, robot=robot, robot_key=robot_key, x=x, y=y, z=z,
-                         target_key=target_key, tol=tol, hold=hold, **kw)
+                         alt=alt, target_key=target_key, tol=tol, hold=hold, **kw)
         self._since = None
 
     def _check(self, agent, bb):
@@ -367,6 +441,10 @@ class IsDroneAt(BBCondition):
             self._since = None
             return Status.FAILURE
         gx, gy, gz = goal
+        # alt 를 주면 DroneGoTo 와 같은 고도로 판정해야 도착이 성립한다.
+        # 드론별 재정의도 같은 robot 으로 읽어야 목표와 판정이 어긋나지 않는다.
+        if gz is None and self.alt:
+            gz = _alt(self.alt, robot)
         tol = float(self.tol) if self.tol is not None else float(TOL['drone_at'])
         hold = float(self.hold) if self.hold is not None else float(TOL['drone_hold'])
         inside = _dist2(p['x'], p['y'], gx, gy) <= tol and (gz is None or abs(p['z'] - gz) <= tol)
@@ -396,7 +474,7 @@ class IsDroneLanded(BBCondition):
 
 
 class AreDronesReturn(BBCondition):
-    """robots="cf_a,cf_b" / robots_key="finder" / exclude_key="finder" 조합. 목록이 비면 SUCCESS."""
+    """robots="cf230,cf231" / robots_key="finder" / exclude_key="finder" 조합. 목록이 비면 SUCCESS."""
 
     def __init__(self, name, agent, robots='', robots_key=None, exclude_key=None, **kw):
         super().__init__(name, agent, robots=robots, robots_key=robots_key, exclude_key=exclude_key, **kw)
@@ -489,11 +567,11 @@ class _DroneService(ActionWithROSService):
 
 
 def _goto_duration(bb, robot, gx, gy):
-    """현재 위치→목표 xy 거리로 short/long duration 선택 (config durations)."""
-    d_cfg = C['durations']
+    """현재 위치→목표 xy 거리로 short/long duration 선택. 세 값 모두 드론별 재정의 가능."""
     p = bb['pose'].get(robot)
     d = _dist2(p['x'], p['y'], gx, gy) if p else float('inf')
-    return float(d_cfg['goto_short']) if d <= float(d_cfg['short_dist']) else float(d_cfg['goto_long'])
+    return (_dur_of('goto_short', robot) if d <= _dur_of('short_dist', robot)
+            else _dur_of('goto_long', robot))
 
 
 def _goto_request(gx, gy, gz, yaw, duration):
@@ -516,19 +594,24 @@ class DroneTakeoff(_DroneService):
     def _make(self, bb, robot):
         req = Takeoff.Request()
         req.group_mask = 0
-        req.height = float(self.height if self.height is not None else C['takeoff']['height'])
-        req.duration = _dur(float(self.duration if self.duration is not None else C['durations']['takeoff']))
+        req.height = float(self.height) if self.height is not None else _alt('takeoff', robot)
+        req.duration = _dur(float(self.duration) if self.duration is not None else _dur_of('takeoff', robot))
         return req, ('takeoff', req.height)
 
 
 class DroneGoTo(_DroneService):
-    """x,y,z 직접 지정 또는 target_key(P_N) 사용. z 미지정 시 hover_z_on_target."""
+    """x,y 직접 지정 또는 target_key(P_N) 사용.
+
+    고도는 alt="<altitudes 키>" 로 고른다 (예: alt="observe"). 미지정 시 altitudes.capture.
+    z="1.5" 처럼 숫자를 직접 줄 수도 있으나, 값이 XML 로 흩어지므로 alt 사용을 권한다.
+    """
     KIND = 'go_to'
 
     def __init__(self, name, agent, robot=None, robot_key=None, x=None, y=None, z=None,
-                 target_key=None, yaw=0.0, duration=None):
+                 alt=None, target_key=None, yaw=0.0, duration=None):
         super().__init__(name, agent, GoTo, 'go_to', robot, robot_key,
-                         x=x, y=y, z=z, target_key=target_key, yaw=yaw, duration=duration)
+                         x=x, y=y, z=z, alt=alt, target_key=target_key,
+                         yaw=yaw, duration=duration)
 
     def _make(self, bb, robot):
         goal = _resolve_goal(bb, self.x, self.y, self.z, self.target_key)
@@ -536,7 +619,7 @@ class DroneGoTo(_DroneService):
             return None
         gx, gy, gz = goal
         if gz is None:
-            gz = float(C['hover_z_on_target'])
+            gz = _alt(self.alt, robot) if self.alt else _alt('capture', robot)
         dur = float(self.duration) if self.duration is not None else _goto_duration(bb, robot, gx, gy)
         return _goto_request(gx, gy, gz, self.yaw, dur), ('go_to', round(gx, 3), round(gy, 3), round(gz, 3))
 
@@ -551,7 +634,7 @@ class DroneLand(_DroneService):
         req = Land.Request()
         req.group_mask = 0
         req.height = 0.0
-        req.duration = _dur(float(self.duration if self.duration is not None else C['durations']['land']))
+        req.duration = _dur(float(self.duration) if self.duration is not None else _dur_of('land', robot))
         return req, ('land',)
 
 
@@ -643,8 +726,8 @@ class _MultiDroneAction(Node):
     def _takeoff(self, bb, robot):
         req = Takeoff.Request()
         req.group_mask = 0
-        req.height = float(C['takeoff']['height'])
-        req.duration = _dur(float(C['durations']['takeoff']))
+        req.height = _alt('takeoff', robot)
+        req.duration = _dur(_dur_of('takeoff', robot))
         return self._send(bb, robot, 'takeoff', req, (req.height,))
 
     def _goto(self, bb, robot, gx, gy, gz, yaw=0.0, duration=None):
@@ -657,7 +740,7 @@ class _MultiDroneAction(Node):
         req = Land.Request()
         req.group_mask = 0
         req.height = 0.0
-        req.duration = _dur(float(C['durations']['land']))
+        req.duration = _dur(_dur_of('land', robot))
         return self._send(bb, robot, 'land', req, ())
 
     @staticmethod
@@ -672,7 +755,7 @@ class _MultiDroneAction(Node):
         self._sig = {}
 
 
-def _lawnmower(zone, spacing, lane_axis='y'):
+def _lawnmower(zone, spacing, lane_axis='y', robot=None):
     """레인 탐색 웨이포인트. lane_axis 로 레인을 쪼개고, 다른 축으로 왕복. 드론은 레인 정중앙을 달린다.
 
     lane_axis='y' (기본): 구역 y폭을 spacing 으로 쪼개 각 레인의 중앙 y 를 유지하며 x축 왕복.
@@ -682,7 +765,7 @@ def _lawnmower(zone, spacing, lane_axis='y'):
     """
     x0, x1 = zone['x']
     y0, y1 = zone['y']
-    z = float(zone['z'])
+    z = _alt('search', robot)   # 전역 altitudes.search, 드론별 재정의가 있으면 그 값
     if lane_axis == 'y':
         lane_lo, lane_hi, run_lo, run_hi = y0, y1, x0, x1
     else:
@@ -711,7 +794,8 @@ class Search(_MultiDroneAction):
         s = C['search']
         self.stagger = float(stagger_sec if stagger_sec is not None else s['stagger_sec'])
         self.tol = float(s['wp_tol'])
-        self.paths = {d: _lawnmower(s['zones'][d], float(s['lane_spacing']), s.get('lane_axis', 'y')) for d in SEARCHERS}
+        self.paths = {d: _lawnmower(s['zones'][d], float(s['lane_spacing']), s.get('lane_axis', 'y'), robot=d)
+                      for d in SEARCHERS}
         self._reset_state()
 
     def _reset_state(self):
@@ -778,7 +862,7 @@ class ReturnDrones(_MultiDroneAction):
                 self.started_t[d] = t
             prev_started = self.started_t[d]
             bx, by = DRONES[d]['base']
-            bz = float(DRONES[d].get('return_z', C['hover_z_on_target']))
+            bz = _alt('return', d)
             p = bb['pose'].get(d)
             if p is None:
                 continue
@@ -809,7 +893,6 @@ class CatchTarget(_MultiDroneAction):
             self.status = Status.FAILURE
             return self.status
         gx, gy = float(pn['x']), float(pn['y'])
-        gz = float(C['hover_z_on_target'])
         cands = [d for d in SEARCHERS if d in bb['pose'] and bb['pose'][d]['z'] >= float(TOL['airborne_z'])]
         if not cands:
             self.status = Status.FAILURE
@@ -817,11 +900,13 @@ class CatchTarget(_MultiDroneAction):
         if bb.get('finder') not in cands:
             bb['finder'] = min(cands, key=lambda d: _dist2(bb['pose'][d]['x'], bb['pose'][d]['y'], gx, gy))
         f = bb['finder']
+        # 고도는 finder 가 정해진 뒤에 읽는다 (드론별 재정의를 반영하기 위해)
+        gz = _alt('capture', f)
         # 명령은 finder 당 1회만. 이후 P_N 이 갱신돼도 재발행하지 않는다.
         # (매 tick 재발행하면 go_to 궤적이 t=0 으로 리셋되어 감속 구간에 못 간다)
         # 서비스 미준비로 실패하면 기록하지 않아 다음 tick 에 다시 시도한다.
         if f not in self._sent_goal and self._goto(bb, f, gx, gy, gz,
-                                                   duration=float(C['durations']['capture'])):
+                                                   duration=_dur_of('capture', f)):
             self._sent_goal[f] = (gx, gy, gz)
         # 도착(hold) 판정 → 재검출 게이팅용 시각 기록.
         # 기준은 "실제로 보낸 목표". 갱신되는 P_N 으로 재면 드론이 선 자리와

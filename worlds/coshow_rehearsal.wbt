@@ -1,0 +1,151 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Grass.proto"
+EXTERNPROTO "../protos/CrazyflieSim.proto"
+
+WorldInfo {
+  info [
+    "COSHOW 실기체 리허설 월드: 4x4 m 실내 테스트장 모사, 드론 4대만"
+    "리모 없음 - tools/fake_limo.py 가 odom + navigate_to_pose 를 대신한다"
+    "미션 마커 11 은 리모가 아니라 바닥 (0,0) 에 직접 놓는다"
+    "config: bt/scenarios/coshow/configs/coshow_rehearsal.yaml"
+  ]
+  title "COSHOW rehearsal (4x4, no limo)"
+  basicTimeStep 2
+}
+Viewpoint {
+  orientation -0.06 0.99 0.13 0.35
+  position -7.5 -0.3 3.6
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 4 4
+  floorTileSize 0.5 0.5
+  wallHeight 0.05
+}
+Solid {
+  translation 0 0 0.001
+  children [
+    Shape {
+      appearance Grass {
+        colorOverride 0.35 0.6 0.3
+        type "artificial"
+      }
+      geometry Plane {
+        size 4 4
+      }
+    }
+  ]
+  name "activity_field_4x4"
+}
+DEF mission_marker Solid {
+  translation 0 0 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_11.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "mission_marker_11"
+}
+DEF marker_1 Solid {
+  translation 0 -1.5 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_1.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_1"
+}
+DEF marker_2 Solid {
+  translation 1 0 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_2.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_2"
+}
+DEF marker_3 Solid {
+  translation -1 1.5 0.003
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../markers/aruco_3.png"
+          ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.002
+      }
+    }
+  ]
+  name "marker_3"
+}
+DEF cf230 CrazyflieSim {
+  translation -1 0 0.015
+  name "cf230"
+  controller "<extern>"
+}
+DEF cf231 CrazyflieSim {
+  translation -1.5 1.5 0.015
+  name "cf231"
+  controller "<extern>"
+}
+DEF cf232 CrazyflieSim {
+  translation -1.5 0 0.015
+  name "cf232"
+  controller "<extern>"
+}
+DEF cf233 CrazyflieSim {
+  translation -1.5 -1.5 0.015
+  name "cf233"
+  controller "<extern>"
+}
+Robot {
+  name "Ros2Supervisor"
+  controller "<extern>"
+  supervisor TRUE
+}

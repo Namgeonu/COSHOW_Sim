@@ -8,12 +8,12 @@
         <LimoNavigateTo robot="limo_a" x="0.0" y="0.0" yaw="1.57"/>
       </ReactiveFallback>
       <ReactiveFallback>
-        <IsDroneAirborne robot="cf_a"/>
-        <DroneTakeoff robot="cf_a"/>
+        <IsDroneAirborne robot="cf230"/>
+        <DroneTakeoff robot="cf230"/>
       </ReactiveFallback>
       <ReactiveFallback>
-        <IsDroneAt robot="cf_a" x="0.0" y="0.0" z="1.5"/>
-        <DroneGoTo robot="cf_a" x="0.0" y="0.0" z="1.5"/>
+        <IsDroneAt robot="cf230" x="0.0" y="0.0" alt="observe"/>
+        <DroneGoTo robot="cf230" x="0.0" y="0.0" alt="observe"/>
       </ReactiveFallback>
       <Idle/>
     </ReactiveSequence>

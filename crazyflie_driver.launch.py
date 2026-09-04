@@ -1,10 +1,10 @@
-"""COSHOW 방향2 2단계 launch: cf_a~d 4대 (WebotsController).
+"""COSHOW 방향2 2단계 launch: cf230~cf233 4대 (WebotsController).
 
 각 드론마다 WebotsController 하나 (robot_name으로 로봇 지정).
 각 driver = 별도 프로세스 → cf_node.CfNode → 자기 cffirmware(static 독립).
 
 전제:
-  - 월드(coshow_integrated.wbt): cf_a~d 모두 controller "<extern>"
+  - 월드(coshow_integrated.wbt): cf230~cf233 모두 controller "<extern>"
   - cf_X.urdf가 controllers/에 있음 (cf_node.CfNode 플러그인 지정)
 
 
@@ -44,7 +44,7 @@ def generate_launch_description():
     pypath = os.pathsep.join([controllers_dir, fw, sim,
                               os.environ.get('PYTHONPATH', '')])
 
-    names = ['cf_a', 'cf_b', 'cf_c', 'cf_d']
+    names = ['cf230', 'cf231', 'cf232', 'cf233']
     return LaunchDescription([
         get_cf_controller(name, coshow, pypath) for name in names
     ])

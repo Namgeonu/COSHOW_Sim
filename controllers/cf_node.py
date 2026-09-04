@@ -12,7 +12,7 @@ CrazyChoir 뼈대 + 검증한 (CrazyflieSIL, dbg22 믹싱, 시정수)을 결합.
   6. 자기 모터 setVelocity
 
 
-월드 설정: cf_a controller "<extern>", 이 플러그인을 webots_ros2_driver로 로드.
+월드 설정: cf230 controller "<extern>", 이 플러그인을 webots_ros2_driver로 로드.
 PYTHONPATH 필요:
   - <COSHOW>/crazyflie-firmware/build           (cffirmware)
   - <COSHOW>/ros2_ws/install/crazyflie_sim/lib/python3.12/site-packages  (CrazyflieSIL)
@@ -52,6 +52,11 @@ SCALING = 800.0        # dbg22와 동일 (control -> 각속도)
 TAU_UP = 0.0125        # 모터 시정수 (Gazebo, 가속)
 TAU_DOWN = 0.025       # 모터 시정수 (Gazebo, 감속)
 
+# 카메라 UDP 스트리밍 포트 (AI-deck 프로토콜). 기체가 여기에 바인딩하고,
+# nodes/aruco_detector_node.py 의 PORT_MAP 이 같은 포트로 FER 프로브를 보낸다.
+# 두 곳이 어긋나면 프레임이 한 장도 가지 않고 뷰어 창도 뜨지 않는다.
+DECK_PORTS = {'cf230': 6001, 'cf231': 6002, 'cf232': 6003, 'cf233': 6004}
+
 
 def _quat_from_euler(roll, pitch, yaw):
     """xyz 오일러(rad) -> 쿼터니언 [w,x,y,z] (CrazyflieSIL State 규약)."""
@@ -72,7 +77,7 @@ class CfNode:
         self.robot = webots_node.robot
         self.timestep = int(self.robot.getBasicTimeStep())
         self.dt = self.timestep / 1000.0
-        self.robot_name = self.robot.getName()   # 예: "cf_a"
+        self.robot_name = self.robot.getName()   # 예: "cf230"
 
         # --- ROS 노드 ---
         if not rclpy.ok():
@@ -102,8 +107,11 @@ class CfNode:
         self.cam_interval = 16
         self._cam_tick = 0
         # --- UDP 스트리밍 (AI-deck 프로토콜 호환) ---
-        # 드론 이름 -> deck 포트 (cf_a=6001 ... cf_d=6004)
-        deck_port = 6000 + (ord(self.robot_name[-1]) - ord('a') + 1)
+        # nodes/aruco_detector_node.py 의 PORT_MAP 과 반드시 같아야 한다.
+        # 예전에는 이름 마지막 글자로 계산했는데(cf_a -> 6001), 기체를 cf230~cf233 으로
+        # 바꾸면서 숫자가 들어가 5952~5955 로 어긋났고 프레임이 한 장도 가지 않았다.
+        # 명시적 맵이면 이름이 또 바뀔 때 KeyError 로 즉시 드러난다.
+        deck_port = DECK_PORTS[self.robot_name]
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.bind(('0.0.0.0', deck_port))
         self.udp_sock.setblocking(False)

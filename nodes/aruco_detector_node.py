@@ -6,7 +6,7 @@ ArUco 마커를 검출하고, 검출 시점의 드론 pose와 함께
 /{drone}/marker_detections (coshow_interfaces/MarkerDetections)로 발행한다.
 
 실행 (드론당 1프로세스):
-  python3 aruco_detector_node.py --ros-args -p drone:=cf_a
+  python3 aruco_detector_node.py --ros-args -p drone:=cf230
 옵션:
   -p display:=true   # OpenCV 창으로 영상+검출 표시 (기본 false)
 """
@@ -69,10 +69,10 @@ GOODBYE = b"BYE"
 
 # 드론 이름 -> (cf_node deck 포트, 수신 포트)
 PORT_MAP = {
-    'cf_a': (6001, 5001),
-    'cf_b': (6002, 5002),
-    'cf_c': (6003, 5003),
-    'cf_d': (6004, 5004),
+    'cf230': (6001, 5001),
+    'cf231': (6002, 5002),
+    'cf232': (6003, 5003),
+    'cf233': (6004, 5004),
 }
 
 
@@ -81,7 +81,7 @@ class ArucoDetectorNode(Node):
         super().__init__('aruco_detector',
                          parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
         # --- 파라미터 ---
-        self.declare_parameter('drone', 'cf_a')
+        self.declare_parameter('drone', 'cf230')
         self.declare_parameter('display', False)
         self.declare_parameter('deck_ip', '127.0.0.1')
         self.drone = self.get_parameter('drone').value
@@ -224,11 +224,14 @@ class ArucoDetectorNode(Node):
                         det.world_x, det.world_y = proj
                 msg.markers.append(det)
 
-        if (len(msg.markers) == 1
-                and (msg.markers[0].world_x != 0.0 or msg.markers[0].world_y != 0.0)):
-            msg.drone_pose.pose.position.x = float(msg.markers[0].world_x)
-            msg.drone_pose.pose.position.y = float(msg.markers[0].world_y)
-
+        # drone_pose 는 이름 그대로 "검출 시점의 드론 위치" 로 둔다.
+        # 마커 위치는 markers[i].world_x/world_y 에 마커별로 실려 있고,
+        # 어느 마커가 타겟인지는 target_id 를 아는 BT 가 고른다.
+        #
+        # 예전에는 여기서 markers 가 정확히 1개일 때만 drone_pose 를 마커 좌표로
+        # 덮어써 보냈다 (BT 를 안 고치려는 우회책). 한 프레임에 마커가 2개 이상이면
+        # 어느 것인지 몰라 덮어쓰기를 건너뛰었고, 그러면 같은 필드가 말없이
+        # "드론 위치" 로 되돌아가 BT 가 그것을 마커 위치로 믿었다.
         self.pub.publish(msg)
 
         if msg.markers:

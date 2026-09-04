@@ -9,7 +9,7 @@ EXTERNPROTO "../protos/LimoFourDiff.proto"
 
 WorldInfo {
   info [
-    "COSHOW 방향2 2단계 월드: cf_a~d 4대 (프로세스 분리 static 검증)"
+    "COSHOW 방향2 2단계 월드: cf230~cf233 4대 (프로세스 분리 static 검증)"
     "각 드론 controller <extern> -> 별도 webots_ros2_driver + cf_node.CfNode 프로세스"
   ]
   title "COSHOW stage2 (4 drones)"
@@ -155,28 +155,28 @@ LimoFourDiff {
   rotation 0.9071353174365494 0.42083906170784624 3.875386388319004e-07 5.560599533832344e-05
   name "limo_b"
 }
-DEF cf_a CrazyflieSim {
+DEF cf230 CrazyflieSim {
   translation -4.2 0.6 0.014999166149999996
   rotation -0.3627215850106132 -0.5983880158592289 -0.714398232251063 1.5891643287131211e-18
-  name "cf_a"
+  name "cf230"
   controller "<extern>"
 }
-DEF cf_b CrazyflieSim {
+DEF cf231 CrazyflieSim {
   translation -4.2 0.2 0.014999166149999996
   rotation 0.05491522438492799 0.9685458310775623 -0.24270000254022872 1.4399365829767889e-18
-  name "cf_b"
+  name "cf231"
   controller "<extern>"
 }
-DEF cf_c CrazyflieSim {
+DEF cf232 CrazyflieSim {
   translation -4.2 -0.2 0.014999166149999996
   rotation 0.05491522438492799 0.9685458310775623 -0.24270000254022872 1.4399365829767889e-18
-  name "cf_c"
+  name "cf232"
   controller "<extern>"
 }
-DEF cf_d CrazyflieSim {
+DEF cf233 CrazyflieSim {
   translation -4.2 -0.6 0.014999166149999996
   rotation -0.3627215850106132 -0.5983880158592289 -0.714398232251063 1.5891643287131211e-18
-  name "cf_d"
+  name "cf233"
   controller "<extern>"
 }
 Robot {

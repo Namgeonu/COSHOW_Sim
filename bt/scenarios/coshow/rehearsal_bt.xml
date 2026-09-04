@@ -1,20 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root BTCPP_format="4">
   <!--
-    COSHOW 중앙 제어 BT — 4단 백체인 (단일 사이클)
+    COSHOW 실기체 리허설 BT — default_bt.xml 에서 딱 한 곳만 다르다.
 
-      미션 완료?      ← 아니면: 전원 복귀
-        구출 완료?    ← 아니면: 재검출 → C·D 복귀 ∥ limo_b 출동 → 10s 대기
-          타겟 마커?  ← 아니면: 관측자 복귀 ∥ 탐색
-            미션 마커?← 아니면: Phase 1 관측 (phase1_observe.xml)
+      [default_bt.xml]  Parallel(limo_a 복귀 ∥ cf230 복귀 ∥ Search)
+                        → 미션 마커가 확정되는 순간 cf230 복귀와 탐색이 동시에 시작된다.
 
-    각 조건 바로 아래 ReactiveSequence 가 "그 조건을 참으로 만드는 행동"이고,
-    그 첫 자식은 항상 한 단계 아래 조건의 ReactiveFallback 이다.
-    IsMissionComplete 가 참이면 루트가 SUCCESS 로 끝나고 그 상태로 정지한다 (반복 없음).
+      [이 파일]          Sequence(cf230 복귀·착륙 → Parallel(limo_a 복귀 ∥ Search))
+                        → cf230 이 바닥에 내려앉은 것을 확인한 뒤에야 탐색이 시작된다.
+
+    왜 바꿨나: 4x4 m 실습장은 좁다. cf230 의 복귀 고도(0.5)와 cf231 의 탐색 고도(0.4)가
+    0.1 m 차이라, 동시에 움직이면 두 기체가 사실상 같은 평면에서 만난다.
+    2026-09-04 시뮬 리허설에서 실제로 +11.40 ~ +15.21 구간 약 3.8초간 그런 상태였다
+    (수평으로 1.5 m 떨어져 있어 사고는 없었다).
+
+    대가: 탐색 시작이 약 4초 늦어진다. 실기체 첫 비행에서는 낼 만한 값으로 본다.
+
+    AreDronesReturn 이 쓰는 _drone_home 은 기지 도착뿐 아니라 z <= landed_z(0.06) 까지
+    요구하므로, "기지 상공 호버" 가 아니라 "착륙 완료" 가 통과 조건이다.
+
+    limo_a 복귀는 그대로 탐색과 병렬로 둔다. 지상 로봇이라 드론과 충돌할 일이 없고,
+    순차로 만들면 이유 없이 3초가 더 늘어난다.
+
+    나머지 구조는 default_bt.xml 과 동일하다.
   -->
   <BehaviorTree ID="coshow">
     <ReactiveSequence>
       <UpdateBlackboard/>
+      <!-- 실기체 안전 관문. tools/preflight_node.py 가 칼만 수렴·위치 일치·
+           슈퍼바이저 상태를 확인하고 무장까지 마쳐야 통과한다. 통과 전에는
+           아래로 내려가지 않으므로 어떤 명령도 나가지 않는다.
+           config 의 preflight.required 가 false 면(시뮬) 항상 통과. -->
+      <IsReady/>
       <ReactiveFallback>
         <IsMissionComplete/>
         <ReactiveSequence>
@@ -32,19 +49,22 @@
                     <SubTree ID="phase1_observe"/>
                   </ReactiveFallback>
 
-                  <!-- 타겟 마커를 얻기 위한 행동: 관측자 복귀 ∥ 탐색 -->
+                  <!-- 타겟 마커를 얻기 위한 행동: cf230 착륙 → (limo_a 복귀 ∥ 탐색) -->
                   <SetLed robot="all" color="blue"/>
-                  <Parallel success_count="3">
-                    <ReactiveFallback>
-                      <IsLimoAt robot="limo_a" x="-4.0" y="2.0"/>
-                      <LimoNavigateTo robot="limo_a" x="-4.0" y="2.0" yaw="0.0"/>
-                    </ReactiveFallback>
+                  <ReactiveSequence>
+                    <!-- cf230 이 기지에 착륙할 때까지 여기서 멈춘다 (고도 충돌 회피) -->
                     <ReactiveFallback>
                       <AreDronesReturn robots="cf230"/>
                       <ReturnDrones robots="cf230"/>
                     </ReactiveFallback>
-                    <Search/>
-                  </Parallel>
+                    <Parallel success_count="2">
+                      <ReactiveFallback>
+                        <IsLimoAt robot="limo_a" x="-4.0" y="2.0"/>
+                        <LimoNavigateTo robot="limo_a" x="-4.0" y="2.0" yaw="0.0"/>
+                      </ReactiveFallback>
+                      <Search/>
+                    </Parallel>
+                  </ReactiveSequence>
                 </ReactiveSequence>
               </ReactiveFallback>
 
@@ -71,9 +91,7 @@
             </ReactiveSequence>
           </ReactiveFallback>
 
-          <!-- 미션 완료를 위한 행동: LED 소등, limo_a ∥ limo_b ∥ 드론 전원 복귀
-               (limo_a 는 Phase 2 에서 복귀를 시작하지만, 타겟 발견으로 그 브랜치가 halt 되면
-                Nav2 결과를 읽을 노드가 없어지므로 여기서 다시 확인·기록한다) -->
+          <!-- 미션 완료를 위한 행동: LED 소등, limo_a ∥ limo_b ∥ 드론 전원 복귀 -->
           <SetLed robot="all" color="off"/>
           <Parallel success_count="3">
             <ReactiveFallback>
@@ -117,6 +135,7 @@
       <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
     </Action>
     <Action ID="CatchTarget" editable="true"/>
+    <Condition ID="IsReady" editable="true"/>
     <Condition ID="IsMissionComplete" editable="true"/>
     <Condition ID="IsRescue" editable="true"><input_port name="robot"/><input_port name="target_key"/></Condition>
     <Condition ID="IsMMFound" editable="true"/>
