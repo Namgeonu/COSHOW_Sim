@@ -22,6 +22,7 @@
   led[robot]               : 마지막 LED 색
 """
 import math
+import signal
 import threading
 import time
 
@@ -89,6 +90,53 @@ def _dur(sec):
     d.sec = int(sec)
     d.nanosec = int((sec - int(sec)) * 1e9)
     return d
+
+
+def _install_emergency_land(ros_node):
+    """Ctrl+C 로 BT 를 끌 때 종료 전에 전 기체를 착륙시킨다.
+
+    드론 명령은 서비스라 액션처럼 취소되지 않는다. halt() 는 명령 서명만 지울 뿐이고,
+    이미 나간 go_to 는 펌웨어가 그대로 완주한 뒤 그 자리에서 무한 호버한다. 그러면
+    조종할 주체가 사라진 채 기체가 공중에 남는다. 그래서 종료 경로에서 직접 내린다.
+
+    ROS spin 이 별도 스레드라(ros_bridge) 시그널 핸들러 안에서 call_async 해도 실제로
+    전송된다. 착륙이 나갈 시간을 준 뒤 KeyboardInterrupt 를 올려 main 의 정리 경로로
+    넘긴다. 착륙 중 Ctrl+C 를 한 번 더 누르면 기다리지 않고 즉시 빠진다.
+    """
+    if not bool(C.get('emergency_land_on_exit', True)):
+        return
+    clients = {d: ros_node.create_client(Land, f'/{d}/land') for d in DRONES}
+    dur = float(C['durations']['land'])
+    state = {'landing': False}
+
+    def _handler(signum, frame):
+        if state['landing']:
+            print('\n[BT] 착륙 대기 중단. 즉시 종료한다.', flush=True)
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            raise KeyboardInterrupt
+        state['landing'] = True
+        print(f'\n[BT] Ctrl+C — 전 기체 착륙 후 종료 ({dur:.0f}초 대기)', flush=True)
+        sent = []
+        for d, cli in clients.items():
+            if not cli.service_is_ready():
+                continue
+            req = Land.Request()
+            req.group_mask = 0
+            req.height = 0.0
+            req.duration = _dur(dur)
+            cli.call_async(req)
+            sent.append(d)
+        print('[BT] land 전송: {}'.format(', '.join(sent) if sent else '없음 (서비스 미준비)'),
+              flush=True)
+        time.sleep(dur + 0.5)          # spin 스레드가 전송·완료할 시간
+        print('[BT] 착륙 완료. 종료한다.', flush=True)
+        raise KeyboardInterrupt
+
+    try:
+        signal.signal(signal.SIGINT, _handler)
+    except ValueError:
+        # 메인 스레드가 아니면 설치할 수 없다. 그 경우 조용히 포기한다.
+        pass
 
 
 def _param(block, key, robot=None):
@@ -190,6 +238,10 @@ class UpdateBlackboard(ConditionWithROSTopics):
                        durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
         self._target_id_snapshot = None      # 콜백 스레드가 참조할 target_id 사본
+
+        # Ctrl+C 로 BT 를 끌 때 기체를 공중에 두고 나가지 않도록.
+        # 트리 구성은 메인 스레드에서 일어나므로 여기서 시그널을 잡을 수 있다.
+        _install_emergency_land(node)
 
     # ---- ROS 콜백 (spin 스레드) ----
     def _on_drone_pose(self, robot, msg):

@@ -105,6 +105,11 @@ coshow:
     capture: 0.8
     return: 0.6
 
+  # Ctrl+C 로 BT 를 끌 때 종료 전에 전 기체에 land 를 보낸다.
+  # 드론 명령은 서비스라 액션처럼 취소되지 않는다. 이게 없으면 이미 나간 go_to 를
+  # 펌웨어가 완주한 뒤 그 자리에서 무한 호버해, 조종할 주체 없이 공중에 남는다.
+  emergency_land_on_exit: true
+
   # 실기체 안전 점검 (tools/preflight_node.py).
   # true 면 /preflight/ready 가 True 가 될 때까지 BT 가 아무 명령도 내지 않는다.
   # ⚠️ Webots 시뮬에는 crazyswarm2 가 없어 그 노드를 띄울 수 없으므로 false.
