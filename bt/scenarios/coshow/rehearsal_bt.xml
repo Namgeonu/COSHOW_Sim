@@ -27,17 +27,21 @@
   <BehaviorTree ID="coshow">
     <ReactiveSequence>
       <UpdateBlackboard/>
-      <!-- 실기체 안전 관문. tools/preflight_node.py 가 칼만 수렴·위치 일치·
-           슈퍼바이저 상태를 확인하고 무장까지 마쳐야 통과한다. 통과 전에는
-           아래로 내려가지 않으므로 어떤 명령도 나가지 않는다.
+      <!-- 실기체 안전 관문. crazyswarm2 의 /cfX/pose·/status·/kalman_variance 를 BT 가
+           직접 읽어 네 대 모두 칼만 수렴·초기위치 일치·슈퍼바이저 정상일 때만 통과한다.
+           판단만 하고 명령은 보내지 않는다 (estimator reset·arm·takeoff 없음).
+           통과 전에는 FAILURE 라 아래로 내려가지 않으므로 어떤 명령도 나가지 않고,
+           루트가 FAILURE 로 끝나도 bt_runner 가 다음 tick 에 다시 평가한다.
+           네 대가 통과하면 latch 되어 비행 중에는 다시 막지 않는다.
+           별도 tools/preflight_node.py 실행이 필요 없다.
            config 의 preflight.required 가 false 면(시뮬) 항상 통과. -->
-      <IsReady/>
+      <PreflightReady/>
       <ReactiveFallback>
         <IsMissionComplete/>
         <ReactiveSequence>
 
           <ReactiveFallback>
-            <IsRescue robot="limo_b" target_key="P_N"/>
+            <IsRescue robot="limo_b" target_key="P_N_limo"/>
             <ReactiveSequence>
 
               <ReactiveFallback>
@@ -54,8 +58,8 @@
                   <ReactiveSequence>
                     <!-- cf230 이 기지에 착륙할 때까지 여기서 멈춘다 (고도 충돌 회피) -->
                     <ReactiveFallback>
-                      <AreDronesReturn robots="cf230"/>
-                      <ReturnDrones robots="cf230"/>
+                      <AreDronesReturn robots_key="observe"/>
+                      <ReturnDrones robots_key="observe"/>
                     </ReactiveFallback>
                     <Parallel success_count="2">
                       <ReactiveFallback>
@@ -76,13 +80,13 @@
               <SetLed robot_key="finder" color="red"/>
               <Parallel success_count="2">
                 <ReactiveFallback>
-                  <AreDronesReturn robots="cf231,cf232,cf233" exclude_key="finder"/>
-                  <ReturnDrones robots="cf231,cf232,cf233" exclude_key="finder"/>
+                  <AreDronesReturn robots_key="searchers" exclude_key="finder"/>
+                  <ReturnDrones robots_key="searchers" exclude_key="finder"/>
                 </ReactiveFallback>
                 <ReactiveSequence>
                   <ReactiveFallback>
-                    <IsLimoAt robot="limo_b" target_key="P_N"/>
-                    <LimoNavigateTo robot="limo_b" target_key="P_N"/>
+                    <IsLimoAt robot="limo_b" target_key="P_N_limo"/>
+                    <LimoNavigateTo robot="limo_b" target_key="P_N_limo"/>
                   </ReactiveFallback>
                   <SetLed robot_key="finder" color="green"/>
                   <Idle/>
@@ -103,8 +107,8 @@
               <LimoNavigateTo robot="limo_b" x="-4.0" y="-2.0" yaw="0.0"/>
             </ReactiveFallback>
             <ReactiveFallback>
-              <AreDronesReturn robots="cf230,cf231,cf232,cf233"/>
-              <ReturnDrones robots="cf230,cf231,cf232,cf233"/>
+              <AreDronesReturn robots_key="all_drones"/>
+              <ReturnDrones robots_key="all_drones"/>
             </ReactiveFallback>
           </Parallel>
         </ReactiveSequence>
@@ -135,7 +139,7 @@
       <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
     </Action>
     <Action ID="CatchTarget" editable="true"/>
-    <Condition ID="IsReady" editable="true"/>
+    <Condition ID="PreflightReady" editable="true"/>
     <Condition ID="IsMissionComplete" editable="true"/>
     <Condition ID="IsRescue" editable="true"><input_port name="robot"/><input_port name="target_key"/></Condition>
     <Condition ID="IsMMFound" editable="true"/>

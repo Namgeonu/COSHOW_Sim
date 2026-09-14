@@ -20,11 +20,19 @@
   rescue_done_t            : 구조 완료 시각 (0 = 미완)
   cmd[robot]               : 마지막 명령 {kind, goal, t}
   led[robot]               : 마지막 LED 색
+  health[drone]            : OK / LOST / STUCK / BLIND  (UpdateBlackboard 가 판정, 명령은 안 냄)
+  health_reason[drone]     : 판정 사유 문자열 (로그용)
+  retired                  : 고장으로 퇴역한 탐색 드론 집합 (Search 가 기록, 이번 실행 동안 영구)
+  zone_assign[drone]       : 드론이 순환할 구역 id 목록 (구역 id = 원래 담당 드론 이름)
+  search_progress[drone]   : (지금 도는 구역, 웨이포인트 인덱스)
+  observe / searchers / all_drones : 이번 실행의 기체 명단. XML 은 기체 이름 대신 이 키를
+                             robot_key / robots_key 로 참조한다 (roster 로 명단을 바꿔 끼우기 위해)
 """
 import math
 import signal
 import threading
 import time
+from collections import deque
 
 from modules.utils import config
 from modules.base_bt_nodes import (  # noqa: F401 — 제어 노드는 bt_constructor 가 이 모듈에서 찾음
@@ -35,15 +43,14 @@ from modules.base_bt_nodes_ros import (
     ConditionWithROSTopics, ActionWithROSAction, ActionWithROSService, ActionWithROSTopic,
 )
 
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 from builtin_interfaces.msg import Duration as DurationMsg
 from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
-from crazyflie_interfaces.srv import Takeoff, GoTo, Land
+from crazyflie_interfaces.msg import LogDataGeneric, Status as CfStatus   # BT 의 Status 와 이름이 겹친다
+from crazyflie_interfaces.srv import Takeoff, GoTo, Land, Arm
 from coshow_interfaces.msg import MarkerDetections
 
 # ── BT Node registration ──────────────────────────────────────────────────────
@@ -55,7 +62,7 @@ CUSTOM_ACTION_NODES = [
     'SetLed', 'Idle',
 ]
 CUSTOM_CONDITION_NODES = [
-    'IsReady',
+    'PreflightReady',
     'IsMMFound', 'IsTMFound', 'IsTargetConfirmed',
     'IsMissionComplete', 'IsRescue',
     'IsDroneAt', 'IsDroneAirborne', 'IsDroneLanded', 'AreDronesReturn',
@@ -92,44 +99,149 @@ def _dur(sec):
     return d
 
 
-def _install_emergency_land(ros_node):
-    """Ctrl+C 로 BT 를 끌 때 종료 전에 전 기체를 착륙시킨다.
+# ── Ctrl+C controlled landing (safe_two_cf_square_final.py 의 값을 따른다) ─────────────
+CTRLC_LAND_HEIGHT = 0.05     # land 목표 고도(m). 궤적이 끝나면 펌웨어 HL commander 가 스스로 모터를 멈춘다
+CTRLC_GROUND_Z = 0.0         # crazyflies.yaml initial_position 의 z (네 대 모두 0)
+CTRLC_LANDED_TOL = 0.15      # 신선한 pose 의 z <= GROUND_Z + 이 값이면 착륙 확인 → disarm 허용
+CTRLC_POSE_MAX_AGE = 0.8     # 이보다 오래된 pose 는 없는 것과 같이 취급한다 (z=0 으로 간주하지 않음)
+CTRLC_SETTLE = 1.0           # land duration 뒤 추가로 기다리는 시간(초)
+
+
+def _install_emergency_land(agent, ub):
+    """Ctrl+C 로 BT 를 끌 때 종료 전에 공중의 기체를 controlled landing 시킨다.
 
     드론 명령은 서비스라 액션처럼 취소되지 않는다. halt() 는 명령 서명만 지울 뿐이고,
     이미 나간 go_to 는 펌웨어가 그대로 완주한 뒤 그 자리에서 무한 호버한다. 그러면
     조종할 주체가 사라진 채 기체가 공중에 남는다. 그래서 종료 경로에서 직접 내린다.
 
-    ROS spin 이 별도 스레드라(ros_bridge) 시그널 핸들러 안에서 call_async 해도 실제로
-    전송된다. 착륙이 나갈 시간을 준 뒤 KeyboardInterrupt 를 올려 main 의 정리 경로로
-    넘긴다. 착륙 중 Ctrl+C 를 한 번 더 누르면 기다리지 않고 즉시 빠진다.
+    절차 (emergency/모터 즉시 차단은 쓰지 않는다):
+      Ctrl+C → 분류 → land(0.05 m) → duration+settle 대기 → pose 로 확인
+             → 미확인 기체만 land 1회 재시도 → 확인된 기체만 disarm → 종료
+      분류: UpdateBlackboard 가 받은 신선한(CTRLC_POSE_MAX_AGE 이내) pose 의 z 가
+            tolerances.landed_z 이하이고 마지막 BT 명령이 takeoff/go_to 가 아닌 기체는
+            "이미 바닥" 으로 보고 land 를 보내지 않는다. 펌웨어 plan_land() 는 planner 가
+            IDLE 이어도 land 를 받아 현재 위치에서 0.05 m 로 가는 궤적을 다시 돌리므로,
+            바닥의 기체에 land 를 또 보내면 duration 동안 모터가 돈다. pose 가 없거나
+            오래됐거나 이륙 명령 직후(z 가 아직 낮아도 올라가는 중)면 안전을 위해 보낸다.
+      확인: 신선한 pose 의 z <= CTRLC_GROUND_Z + CTRLC_LANDED_TOL. pose 부재/stale 은 미확인.
+      disarm: 확인된 기체에만 /cfX/arm(arm=False). 미확인 기체는 경고만 남긴다.
+            (아직 높이 있는 것으로 보이는 기체에 자동 disarm 을 보내지 않는다)
+
+    핸들러는 메인 스레드에서 돌며 그동안 BT tick 이 멈추므로 새 임무 명령은 나가지 않는다.
+    ROS spin 이 별도 스레드라(ros_bridge) 핸들러 안에서 call_async 해도 실제로 전송되고
+    pose 도 계속 갱신된다. 착륙 중 Ctrl+C 를 다시 누르면 안내만 하고 절차를 계속한다.
+    절차가 끝나면 KeyboardInterrupt 를 올려 main 의 정리 경로(close → halt_tree)로 넘긴다.
     """
     if not bool(C.get('emergency_land_on_exit', True)):
         return
-    clients = {d: ros_node.create_client(Land, f'/{d}/land') for d in DRONES}
+    node = ub.ros.node
+    land_cli = {d: node.create_client(Land, f'/{d}/land') for d in DRONES}
+    arm_cli = {d: node.create_client(Arm, f'/{d}/arm') for d in DRONES}
     dur = float(C['durations']['land'])
+    landed_z = float(TOL['landed_z'])
     state = {'landing': False}
 
-    def _handler(signum, frame):
-        if state['landing']:
-            print('\n[BT] 착륙 대기 중단. 즉시 종료한다.', flush=True)
-            signal.signal(signal.SIGINT, signal.SIG_DFL)
-            raise KeyboardInterrupt
-        state['landing'] = True
-        print(f'\n[BT] Ctrl+C — 전 기체 착륙 후 종료 ({dur:.0f}초 대기)', flush=True)
+    def _fresh_z(d):
+        """신선한 pose 의 z. 없거나 오래됐으면 None."""
+        with ub._lock:
+            p = ub._pose.get(d)
+        if p is None or now() - p['t'] > CTRLC_POSE_MAX_AGE:
+            return None
+        return float(p['z'])
+
+    def _ztxt(d):
+        z = _fresh_z(d)
+        return f'{d} (no fresh pose)' if z is None else f'{d} (z={z:.2f})'
+
+    def _confirmed(d):
+        z = _fresh_z(d)
+        return z is not None and z <= CTRLC_GROUND_Z + CTRLC_LANDED_TOL
+
+    def _send_land(targets):
         sent = []
-        for d, cli in clients.items():
-            if not cli.service_is_ready():
+        for d in targets:
+            if not land_cli[d].service_is_ready():
                 continue
             req = Land.Request()
             req.group_mask = 0
-            req.height = 0.0
+            req.height = CTRLC_LAND_HEIGHT
             req.duration = _dur(dur)
-            cli.call_async(req)
+            land_cli[d].call_async(req)
             sent.append(d)
-        print('[BT] land 전송: {}'.format(', '.join(sent) if sent else '없음 (서비스 미준비)'),
+        return sent
+
+    def _wait(sec):
+        end = now() + sec
+        while now() < end:
+            time.sleep(0.1)
+
+    def _handler(signum, frame):
+        if state['landing']:
+            print('\n[CTRL+C] Controlled landing already in progress.', flush=True)
+            return
+        state['landing'] = True
+        t0 = now()
+        print('\n[CTRL+C] Controlled landing requested.', flush=True)
+
+        cmd = agent.blackboard.get('cmd', {})
+        pending, on_ground = [], []
+        for d in DRONES:
+            z = _fresh_z(d)
+            last = (cmd.get(d) or {}).get('kind')
+            if z is not None and z <= landed_z and last not in ('takeoff', 'go_to'):
+                on_ground.append(d)
+            else:
+                pending.append(d)
+        print('[LAND] already on ground (no land sent): {} | to land: {}'.format(
+            ', '.join(_ztxt(d) for d in on_ground) or '-',
+            ', '.join(_ztxt(d) for d in pending) or '-'), flush=True)
+
+        for attempt in (1, 2):
+            if not pending:
+                break
+            sent = _send_land(pending)
+            no_srv = [d for d in pending if d not in sent]
+            print('[LAND] attempt {}: land(height={:.2f} m, duration={:.1f} s) -> {}{}'.format(
+                attempt, CTRLC_LAND_HEIGHT, dur, ', '.join(sent) or '-',
+                f' | service not ready: {", ".join(no_srv)}' if no_srv else ''), flush=True)
+            if not sent:
+                break
+            print(f'[LAND] waiting {dur + CTRLC_SETTLE:.1f} s for descent...', flush=True)
+            _wait(dur + CTRLC_SETTLE)
+            pending = [d for d in pending if not _confirmed(d)]
+            if pending and attempt == 1:
+                print('[LAND] landing not confirmed for {}; sending one additional land command.'
+                      .format(', '.join(_ztxt(d) for d in pending)), flush=True)
+
+        confirmed = [d for d in DRONES if _confirmed(d)]
+        unconfirmed = [d for d in DRONES if d not in confirmed]
+        print('[LAND] ground proximity confirmed: {}'.format(
+            ', '.join(_ztxt(d) for d in confirmed) or '-'), flush=True)
+
+        futs = {}
+        for d in confirmed:
+            if not arm_cli[d].service_is_ready():
+                print(f'[LAND] {d}: /arm service not ready. Disarm skipped.', flush=True)
+                continue
+            req = Arm.Request()
+            req.arm = False
+            futs[d] = arm_cli[d].call_async(req)
+        if futs:
+            end = now() + 1.0
+            while now() < end and not all(f.done() for f in futs.values()):
+                time.sleep(0.05)
+            acked = [d for d, f in futs.items() if f.done()]
+            print('[LAND] disarm sent: {} (acknowledged: {})'.format(
+                ', '.join(futs), ', '.join(acked) or '-'), flush=True)
+        for d in unconfirmed:
+            print(f'[LAND WARNING] {d} landing could not be confirmed. '
+                  'Automatic disarm was NOT sent.', flush=True)
+
+        print(f'[CTRL+C] Controlled landing finished ({now() - t0:.1f} s). Shutting down.',
               flush=True)
-        time.sleep(dur + 0.5)          # spin 스레드가 전송·완료할 시간
-        print('[BT] 착륙 완료. 종료한다.', flush=True)
+        # 착륙 절차가 끝났으니 이후 Ctrl+C 는 기본 동작(즉시 종료)으로 돌려 놓는다.
+        # 정리 경로가 어딘가에서 멈추더라도 빠져나올 수 있게 하기 위함이다.
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
         raise KeyboardInterrupt
 
     try:
@@ -217,6 +329,13 @@ class UpdateBlackboard(ConditionWithROSTopics):
         self._mission_event = None           # 확정 대기 중인 이벤트
         self._target_events = []             # 확정된 target 검출 이벤트 큐
         self._seen_now = {}                  # drone -> t
+        self._det_t = {}                     # drone -> 마지막 카메라 프레임 수신 시각 (BLIND 판정)
+
+        # 기체 상태 판정 상태 (_update_health)
+        self._health = {}                    # drone -> OK/LOST/STUCK/BLIND
+        self._health_reason = {}
+        self._last_bad_t = {}                # drone -> 마지막으로 이상이 관측된 시각 (t_recover 용)
+        self._prog_ref = {}                  # drone -> 진행 기준점 {x,y,z,t,cmd_t} (STUCK 판정)
 
         for d in DRONES:
             node.create_subscription(PoseStamped, f'/{d}/pose',
@@ -227,31 +346,18 @@ class UpdateBlackboard(ConditionWithROSTopics):
             node.create_subscription(Odometry, cfg['pose_topic'],
                                      lambda m, r=l: self._on_limo_pose(r, m), 10)
 
-        # tools/preflight_node.py 의 실기체 안전 점검 결과. 시뮬에는 그 노드가 없으므로
-        # preflight.required 가 false 면 이 값을 보지 않는다 (IsReady 참조).
-        # 발행 측이 transient_local 이라 BT 가 늦게 떠도 마지막 값을 받는다.
-        self._preflight_ready = False
-        node.create_subscription(
-            Bool, '/preflight/ready', self._on_preflight,
-            QoSProfile(depth=1,
-                       reliability=ReliabilityPolicy.RELIABLE,
-                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
-
         self._target_id_snapshot = None      # 콜백 스레드가 참조할 target_id 사본
 
         # Ctrl+C 로 BT 를 끌 때 기체를 공중에 두고 나가지 않도록.
         # 트리 구성은 메인 스레드에서 일어나므로 여기서 시그널을 잡을 수 있다.
-        _install_emergency_land(node)
+        # 이 노드의 pose 캐시(_pose/_lock)와 bb['cmd'] 를 착륙 판단에 쓴다.
+        _install_emergency_land(agent, self)
 
     # ---- ROS 콜백 (spin 스레드) ----
     def _on_drone_pose(self, robot, msg):
         p = msg.pose.position
         with self._lock:
             self._pose[robot] = {'x': p.x, 'y': p.y, 'z': p.z, 't': now()}
-
-    def _on_preflight(self, msg):
-        with self._lock:
-            self._preflight_ready = bool(msg.data)
 
     def _on_limo_pose(self, robot, msg):
         p = msg.pose.pose.position
@@ -265,6 +371,7 @@ class UpdateBlackboard(ConditionWithROSTopics):
         ids = [m.id for m in msg.markers]
         with self._lock:
             self._det_latest[drone] = msg
+            self._det_t[drone] = t
             tid = self._target_id_snapshot
 
             # 연속 프레임 카운트: 관심 ID(미션 범위 또는 target) 하나만 추적
@@ -319,11 +426,14 @@ class UpdateBlackboard(ConditionWithROSTopics):
         bb.setdefault('finder', None)
         bb.setdefault('rescue_done_t', 0.0)
         bb.setdefault('target_seen_now', {})
+        # 기체 명단 (roster 가 config 에 넣은 값). XML 의 robot_key="observe" 등이 읽는다.
+        bb['observe'] = C['observe_drone']
+        bb['searchers'] = list(SEARCHERS)
+        bb['all_drones'] = list(DRONES)
 
         with self._lock:
             bb['pose'] = {k: dict(v) for k, v in self._pose.items()}
             bb['detections'] = dict(self._det_latest)
-            bb['preflight_ready'] = self._preflight_ready
             mission_ev = self._mission_event
             self._mission_event = None
             target_evs = self._target_events
@@ -337,6 +447,9 @@ class UpdateBlackboard(ConditionWithROSTopics):
             missing = [r for r in required if r not in bb['pose']]
             bb['missing_pose'] = missing
             return False
+
+        # [기체 상태] 판정만 기록. 대응(퇴역·비상착륙·구역 이어받기)은 Search 가 한다.
+        self._update_health(bb, t)
 
         # [미션 마커 확정] 게이팅: 발신=cf230, ID 범위(콜백에서 필터), cf230 가 관측점에 도착한 이후 스탬프
         if mission_ev and not bb['mission_marker']['found']:
@@ -368,10 +481,88 @@ class UpdateBlackboard(ConditionWithROSTopics):
                 bb['target_confirmed'] = True
                 bb['target_confirm_note'] = 'timeout'
 
-        # 편의 키: P_N (LimoNavigateTo/DroneGoTo 의 target_key 로 사용)
+        # 편의 키 두 개.
+        #   P_N       마커 실제 위치. 드론(CatchTarget)이 그 위에 호버할 때 쓴다.
+        #   P_N_limo  P_N 에서 x 로 limo_approach_dx 만큼 물러선 접근점.
+        #             마커가 건물 지붕에 있으면 P_N 은 건물이 서 있는 자리라,
+        #             리모가 그대로 가면 건물을 들이받는다. 리모는 x- 쪽에서
+        #             오므로 x 를 빼면 건물 앞에 선다. dx=0 이면 P_N 과 같다.
         if bb['target_marker']['found']:
-            bb['P_N'] = bb['target_marker']['pose']
+            pn = bb['target_marker']['pose']
+            bb['P_N'] = pn
+            dx = float(C.get('limo_approach_dx', 0.0))
+            bb['P_N_limo'] = dict(pn, x=pn['x'] + dx)
         return True
+
+    # ---- 기체 상태 판정 ----
+    def _update_health(self, bb, t):
+        """bb['health'][d] ∈ {OK, LOST, STUCK, BLIND}. 판정만 하고 명령은 내지 않는다.
+
+        LOST  : pose 가 pose_max_age 넘게 안 옴 (통신 두절).
+        STUCK : takeoff/go_to 가 살아 있는데 movement_time_allowance 안에
+                required_movement_radius 만큼 못 움직임. 목표에 도달해 호버 중이면 정상.
+                리모 Nav2 에 이미 쓰고 있는 SimpleProgressChecker 와 같은 규칙이다
+                (required_movement_radius / movement_time_allowance).
+        BLIND : 카메라 프레임(marker_detections)이 frame_max_age 넘게 안 옴. 첫 프레임을
+                받기 전에는 판정하지 않으므로 검출 노드가 BT 보다 늦게 떠도 오판이 없다.
+                frame_max_age 가 0 이면 끈다.
+        우선순위 LOST > STUCK > BLIND. 이상이 사라져도 t_recover 동안은 이전 상태를
+        유지한다 (깜빡임 방지). 이미 퇴역한 탐색 드론은 회복해도 Search 가 다시 쓰지 않는다.
+        health 블록이 config 에 없으면 전부 OK.
+        """
+        h = C.get('health') or {}
+        bb.setdefault('health', {})
+        bb.setdefault('health_reason', {})
+        with self._lock:
+            det_t = dict(self._det_t)
+        for d in DRONES:
+            raw, why = self._judge_health(bb, d, t, h, det_t) if h else (None, '')
+            prev = self._health.get(d, 'OK')
+            if raw is not None:
+                new = raw
+                self._last_bad_t[d] = t
+            elif prev != 'OK' and t - self._last_bad_t.get(d, t) >= float(h.get('t_recover', 3.0)):
+                new, why = 'OK', ''
+            else:
+                new, why = prev, self._health_reason.get(d, '')   # 회복 대기 중이거나 원래 OK
+            if new != prev:
+                print(f'[HEALTH] {d}: {prev} → {new}' + (f' ({why})' if why else ''), flush=True)
+            self._health[d], self._health_reason[d] = new, why
+            bb['health'][d], bb['health_reason'][d] = new, why
+
+    def _judge_health(self, bb, d, t, h, det_t):
+        """이번 tick 의 원시 판정. (상태, 사유) 또는 (None, '') 을 돌려준다."""
+        p = bb['pose'].get(d)
+        age = (t - p['t']) if p else float('inf')
+        if age > float(h.get('pose_max_age', 1.0)):
+            self._prog_ref.pop(d, None)
+            return 'LOST', f'pose {age:.1f} s 끊김'
+
+        cmd = bb['cmd'].get(d)
+        if cmd and cmd['kind'] in ('takeoff', 'go_to'):
+            # 기준점: 이 명령을 처음 본 순간의 위치. 거기서 반경만큼 벗어날 때마다 갱신.
+            ref = self._prog_ref.get(d)
+            if ref is None or ref['cmd_t'] != cmd['t']:
+                ref = {'x': p['x'], 'y': p['y'], 'z': p['z'], 't': t, 'cmd_t': cmd['t']}
+                self._prog_ref[d] = ref
+            g = cmd['goal']                        # go_to: (x,y,z)  takeoff: (height,)
+            gtol = float(h.get('goal_reached_tol', 0.3))
+            if cmd['kind'] == 'go_to':
+                reached = _dist2(p['x'], p['y'], g[0], g[1]) <= gtol and abs(p['z'] - g[2]) <= gtol
+            else:
+                reached = abs(p['z'] - g[0]) <= gtol
+            moved = math.sqrt((p['x'] - ref['x']) ** 2 + (p['y'] - ref['y']) ** 2 + (p['z'] - ref['z']) ** 2)
+            if reached or moved >= float(h.get('required_movement_radius', 0.3)):
+                ref.update(x=p['x'], y=p['y'], z=p['z'], t=t)
+            elif t - ref['t'] > float(h.get('movement_time_allowance', 8.0)):
+                return 'STUCK', f'{cmd["kind"]} 뒤 {t - ref["t"]:.1f} s 동안 {moved:.2f} m 이동'
+        else:
+            self._prog_ref.pop(d, None)            # land 중이거나 명령 없음: 정지가 정상
+
+        fmax = float(h.get('frame_max_age', 0.0))
+        if fmax > 0 and d in det_t and t - det_t[d] > fmax:
+            return 'BLIND', f'카메라 {t - det_t[d]:.1f} s 끊김'
+        return None, ''
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -394,22 +585,180 @@ class BBCondition(SyncCondition):
         return Status.SUCCESS if ok else Status.FAILURE
 
 
-class IsReady(BBCondition):
-    """실기체 안전 점검 통과 여부. 트리 맨 위에 두어 전체를 막는 관문.
+class PreflightReady(BBCondition):
+    """실기체 비행 전 안전 관문. 트리 맨 위에 두어 첫 비행 명령이 나가기 전에 전체를 막는다.
 
-    tools/preflight_node.py 가 /preflight/ready 로 알린다. 그 노드가 칼만 수렴·
-    위치 일치·슈퍼바이저 상태를 확인하고 무장까지 끝낸 뒤에야 True 가 된다.
-    비행 중 이상(통신 두절, 자세 이상, 기체 간 최소거리 위반)이 생기면 False 로
-    내려가고, 그러면 이 조건이 FAILURE 가 되어 BT 가 그 tick 부터 명령을 멈춘다.
-    (명령이 멈춘 뒤 preflight 노드가 착륙시키므로 서로 다투지 않는다.)
+    crazyswarm2 가 이미 내는 토픽만 읽어 판단한다. 명령은 어떤 것도 보내지 않는다
+    (estimator reset·arm·takeoff·go_to·land·펌웨어 파라미터 쓰기 없음). 그래서 tick 이
+    반복돼도 기체 상태를 바꾸는 부작용이 없고, 별도의 tools/preflight_node.py 를 띄울
+    필요가 없다.
 
-    시뮬에는 그 노드가 없다. config 의 preflight.required 가 false 면 항상 통과한다.
+      /cfX/kalman_variance  LogDataGeneric  values[0:3] = kalman.varPX, varPY, varPZ
+      /cfX/status           Status          supervisor_info, pm_state
+      /cfX/pose             PoseStamped     UpdateBlackboard 가 bb['pose'] 에 적은 것을 읽는다
+                                            (같은 토픽을 두 번 구독하지 않는다)
+
+    기체마다 kalman_ready AND pose_ready AND supervisor_ready 이고, 네 대 모두 참이어야 SUCCESS.
+      kalman     축별 최근 kalman_history_len 샘플의 max-min < kalman_threshold.
+                 샘플이 다 쌓이기 전에는 아님.
+      pose       실제 pose 를 받았고, 나이 <= pose_max_age 이며, 기대 초기위치
+                 (drones.<cf>.base, z=0 — crazyflies.yaml 의 initial_position 과 같아야 함)
+                 와 x/y/z 축별 오차 <= pose_tolerance 인 상태가 pose_stable_time 동안
+                 끊기지 않고 유지. 한 번이라도 벗어나면 타이머를 0 부터 다시 센다.
+      supervisor status 나이 <= status_max_age, IS_TUMBLED·IS_LOCKED 아님, PM_STATE_SHUTDOWN
+                 아님. auto-arm 기체는 지상에서 IS_ARMED=True, CAN_BE_ARMED=False 가
+                 정상이므로 그대로 통과. manual-arm 기체는 CAN_BE_ARMED 또는 IS_ARMED.
+                 배터리 전압은 보지 않는다 (safe_two_cf_square_final.py 와 같은
+                 power-state 수준까지만. AI-Deck 부하 검증 전이라 별도 임계값을 두지 않는다).
+
+    준비 전에는 FAILURE 다. 루트 ReactiveSequence 가 FAILURE 로 끝나도 bt_runner 는 트리
+    결과를 보지 않고 다음 tick 에 다시 돌리므로(main.py 의 loop), BT 는 종료되지 않고
+    여기서 계속 기다리며 재평가한다. 그동안 아래 노드는 tick 되지 않으므로 명령이 0 건이다.
+
+    네 대가 모두 통과한 순간 latch 되어 이후에는 항상 SUCCESS 다. 이륙하면 pose 가
+    초기위치를 벗어나고 칼만 분산도 흔들리므로, latch 가 없으면 매 tick 관문이 닫혀
+    임무가 멈춘다. 비행 중 감시는 이 노드의 몫이 아니다.
+
+    config 의 preflight.required 가 false 면(시뮬: crazyswarm2 토픽 없음) 항상 통과한다.
     """
 
+    _DEFAULTS = dict(kalman_history_len=10, kalman_threshold=0.001,
+                     pose_max_age=0.8, pose_tolerance=0.10, pose_stable_time=2.0,
+                     status_max_age=1.0)
+
+    def __init__(self, name, agent, **kw):
+        super().__init__(name, agent, **kw)
+        pf = dict(self._DEFAULTS, **(C.get('preflight') or {}))
+        self.required = bool(pf.get('required', False))
+        self.hist_len = int(pf['kalman_history_len'])
+        self.kal_thr = float(pf['kalman_threshold'])
+        self.pose_max_age = float(pf['pose_max_age'])
+        self.pose_tol = float(pf['pose_tolerance'])
+        self.pose_stable = float(pf['pose_stable_time'])
+        self.status_max_age = float(pf['status_max_age'])
+        self.drones = list(DRONES)
+        # 기대 초기위치. crazyflies.yaml 의 initial_position 과 같아야 한다.
+        self.expected = {d: (float(DRONES[d]['base'][0]), float(DRONES[d]['base'][1]), 0.0)
+                         for d in self.drones}
+
+        self._lock = threading.Lock()
+        self._kal = {d: [deque(maxlen=self.hist_len) for _ in range(3)] for d in self.drones}
+        self._status = {}                                  # drone -> (Status msg, 수신시각)
+        self._pose_good_since = {d: None for d in self.drones}
+        self._last_check_t = None
+        self._last_log_t = None
+        self._passed = False
+
+        if not self.required:
+            print('[PRE-FLIGHT] 관문 비활성 (preflight.required=false). 실기체에서는 true 여야 한다.',
+                  flush=True)
+            return
+        node = agent.ros_bridge.node
+        for d in self.drones:
+            node.create_subscription(LogDataGeneric, f'/{d}/kalman_variance',
+                                     lambda m, r=d: self._on_kalman(r, m), 10)
+            node.create_subscription(CfStatus, f'/{d}/status',
+                                     lambda m, r=d: self._on_status(r, m), 10)
+        print('[PRE-FLIGHT] 관문 활성: {} — 칼만 수렴·초기위치·슈퍼바이저 통과 전에는 명령 없음'
+              .format(', '.join(self.drones)), flush=True)
+
+    # ---- ROS 콜백 (spin 스레드) ----
+    def _on_kalman(self, drone, msg):
+        if len(msg.values) < 3:
+            return
+        with self._lock:
+            for axis in range(3):
+                self._kal[drone][axis].append(float(msg.values[axis]))
+
+    def _on_status(self, drone, msg):
+        with self._lock:
+            self._status[drone] = (msg, now())
+
+    # ---- 관문 (BT 스레드, _lock 안에서 호출) — 읽고 판단만 한다 ----
+    def _kalman_ready(self, drone):
+        hist = self._kal[drone]
+        n = min(len(a) for a in hist)
+        if n < self.hist_len:
+            return False, f'samples {n}/{self.hist_len}'
+        rng = tuple(max(a) - min(a) for a in hist)
+        return all(r < self.kal_thr for r in rng), 'range=({:.6f},{:.6f},{:.6f})'.format(*rng)
+
+    def _pose_ready(self, drone, bb, t):
+        p = bb.get('pose', {}).get(drone)
+        if p is None:
+            self._pose_good_since[drone] = None
+            return False, 'no pose'
+        age = t - p['t']
+        if age > self.pose_max_age:
+            self._pose_good_since[drone] = None
+            return False, f'pose stale {age:.1f}s'
+        ex, ey, ez = self.expected[drone]
+        err = (abs(p['x'] - ex), abs(p['y'] - ey), abs(p['z'] - ez))
+        if any(e > self.pose_tol for e in err):
+            self._pose_good_since[drone] = None
+            return False, 'position error=({:.3f},{:.3f},{:.3f})'.format(*err)
+        if self._pose_good_since[drone] is None:
+            self._pose_good_since[drone] = t
+        held = t - self._pose_good_since[drone]
+        if held < self.pose_stable:
+            return False, f'stable {held:.1f}/{self.pose_stable:.1f}s'
+        return True, ''
+
+    def _supervisor_ready(self, drone, t):
+        entry = self._status.get(drone)
+        if entry is None:
+            return False, 'no /status'
+        s, rx_t = entry
+        if t - rx_t > self.status_max_age:
+            return False, f'status stale {t - rx_t:.1f}s'
+        info = int(s.supervisor_info)
+        if info & CfStatus.SUPERVISOR_INFO_IS_TUMBLED:
+            return False, 'IS_TUMBLED'
+        if info & CfStatus.SUPERVISOR_INFO_IS_LOCKED:
+            return False, 'IS_LOCKED'
+        if int(s.pm_state) == CfStatus.PM_STATE_SHUTDOWN:
+            return False, 'PM_STATE_SHUTDOWN'
+        if info & CfStatus.SUPERVISOR_INFO_AUTO_ARM:
+            # 기본 auto-arm 설정에서는 지상에서 IS_ARMED=True, CAN_BE_ARMED=False 가 정상. 거부하지 않는다.
+            return True, ''
+        if not (info & (CfStatus.SUPERVISOR_INFO_CAN_BE_ARMED | CfStatus.SUPERVISOR_INFO_IS_ARMED)):
+            return False, 'manual-arm: neither CAN_BE_ARMED nor IS_ARMED'
+        return True, ''
+
+    @staticmethod
+    def _why(ok, why):
+        return '' if ok or not why else f'({why})'
+
     def _check(self, agent, bb):
-        if not bool(C.get('preflight', {}).get('required', False)):
+        if not self.required or self._passed:
             return Status.SUCCESS
-        return self._st(bb.get('preflight_ready', False))
+        t = bb.get('now', now())
+        # "연속 유지" 는 이 노드가 매 tick 보고 있을 때만 보장된다. 평가가 한동안 끊겼으면
+        # (일시정지 등) 그 사이를 알 수 없으므로 타이머를 다시 센다.
+        if self._last_check_t is not None and t - self._last_check_t > self.pose_max_age:
+            for d in self.drones:
+                self._pose_good_since[d] = None
+        self._last_check_t = t
+
+        lines, all_ok = [], True
+        with self._lock:
+            for d in self.drones:
+                k_ok, k_why = self._kalman_ready(d)
+                p_ok, p_why = self._pose_ready(d, bb, t)
+                s_ok, s_why = self._supervisor_ready(d, t)
+                all_ok = all_ok and k_ok and p_ok and s_ok
+                lines.append('[PRE-FLIGHT] {}: kalman={}{} | pose={}{} | supervisor={}{}'.format(
+                    d, k_ok, self._why(k_ok, k_why), p_ok, self._why(p_ok, p_why),
+                    s_ok, self._why(s_ok, s_why)))
+        if all_ok:
+            self._passed = True
+            print('[PRE-FLIGHT] PASS: {} ready'.format(', '.join(self.drones)), flush=True)
+            return Status.SUCCESS
+        # 약 1 초에 한 번만 이유를 찍는다 (10 Hz tick 에서 로그 폭주 방지)
+        if self._last_log_t is None or t - self._last_log_t >= 1.0:
+            self._last_log_t = t
+            print('\n'.join(lines), flush=True)
+        return Status.FAILURE
 
 
 class IsMMFound(BBCondition):
@@ -449,6 +798,11 @@ class IsRescue(BBCondition):
 
 
 def _drone_home(bb, robot):
+    # 고장으로 퇴역한 기체는 "돌아온 것" 으로 친다. 이미 착륙했거나 착륙을 시도했고 더
+    # 시킬 수 있는 게 없다. 이렇게 안 하면 퇴역 기체 하나가 AreDronesReturn / ReturnDrones /
+    # IsMissionComplete 를 영원히 막아 임무가 끝나지 않는다.
+    if robot in bb.get('retired', ()):
+        return True
     p = bb['pose'].get(robot)
     if p is None:
         return False
@@ -515,13 +869,15 @@ class IsDroneAt(BBCondition):
 
 class IsDroneAirborne(BBCondition):
     def _check(self, agent, bb):
-        p = bb['pose'].get(self.robot)
+        robot = bb.get(self.robot_key) if getattr(self, 'robot_key', None) else self.robot
+        p = bb['pose'].get(robot)
         return self._st(p is not None and p['z'] >= float(getattr(self, 'z_min', TOL['airborne_z'])))
 
 
 class IsDroneLanded(BBCondition):
     def _check(self, agent, bb):
-        p = bb['pose'].get(self.robot)
+        robot = bb.get(self.robot_key) if getattr(self, 'robot_key', None) else self.robot
+        p = bb['pose'].get(robot)
         return self._st(p is not None and p['z'] <= float(getattr(self, 'z_max', TOL['landed_z'])))
 
 
@@ -832,6 +1188,10 @@ def _lawnmower(zone, spacing, lane_axis='y', robot=None):
     return pts
 
 
+def _zone_center(zone):
+    return (sum(float(v) for v in zone['x']) / 2.0, sum(float(v) for v in zone['y']) / 2.0)
+
+
 class Search(_MultiDroneAction):
     """탐색 드론들에게 이륙 → 구역 레인 웨이포인트를 순차 go_to. 항상 RUNNING.
 
@@ -839,6 +1199,22 @@ class Search(_MultiDroneAction):
     - 블랙보드 pose 로 웨이포인트 도착 판정 후 다음 점 전송
     - 레인 끝까지 가면 역순으로 반복(핑퐁)
     - 타겟 발견 시 상위 ReactiveFallback 이 halt → 더 이상 명령 안 냄 (finder 는 Phase 3 이 go_to 로 덮어씀)
+
+    고장 대응 (판정은 UpdateBlackboard 의 bb['health'], 대응은 전부 여기서):
+    - 탐색 드론이 OK 가 아니게 되면 그 자리에서 퇴역(retired). 이번 실행 동안 영구.
+      공중에 있으면 land 를 1회 보낸다 (LOST 라도 best-effort 로 보낸다).
+    - 퇴역 드론의 구역은 "클리어" 된 뒤에야 다른 드론이 이어받는다.
+        · 신선한 pose 로 착륙(z <= landed_z) 확인          → 클리어
+        · LOST(pose 없음): 퇴역 후 lost_clear_timeout 경과  → 확인 불가, 타임아웃 클리어 (경고)
+        · 여전히 공중                                       → 클리어 안 함. 통제 불능 기체 위로 보내지 않는다
+      착륙한 Crazyflie 는 높이 3 cm 라 탐색 고도 아래로 지나가도 안전하다.
+    - 클리어된 구역은 생존 드론 중 구역 중심에 가장 가까운 한 대가 이어받는다.
+      동점이면 searchers 목록 순. 한 번 정해지면 그 드론이 퇴역하기 전엔 바꾸지 않는다
+      (매 tick 재계산하면 두 드론이 번갈아 가까워지며 배정이 흔들린다).
+    - 이어받은 드론은 [자기 구역, 이어받은 구역...] 을 순환한다. 현재 구역의 왕복(시작점
+      복귀)을 마친 시점에만 다음 구역으로 넘어가므로 하던 일이 끊기지 않는다.
+      남의 구역이라도 고도는 지금 나는 드론의 altitudes.search 를 쓴다
+      (드론별 고도 분리가 충돌 회피 수단이라 그 층을 유지해야 한다).
     """
 
     def __init__(self, name, agent, stagger_sec=None):
@@ -846,19 +1222,113 @@ class Search(_MultiDroneAction):
         s = C['search']
         self.stagger = float(stagger_sec if stagger_sec is not None else s['stagger_sec'])
         self.tol = float(s['wp_tol'])
-        self.paths = {d: _lawnmower(s['zones'][d], float(s['lane_spacing']), s.get('lane_axis', 'y'), robot=d)
-                      for d in SEARCHERS}
+        self.zones = s['zones']
+        # 구역 id = 원래 담당 드론 이름. 경로는 구역마다 하나. z 는 사용 시점에 나는 드론 것으로 바꾼다.
+        self.paths = {z: _lawnmower(self.zones[z], float(s['lane_spacing']), s.get('lane_axis', 'y'), robot=z)
+                      for z in SEARCHERS}
+        self.h = C.get('health') or {}
+        # 이번 실행 동안 영구인 상태 (halt 로 초기화하지 않는다)
+        self.retired = {}       # drone -> 퇴역 시각
+        self.cleared = set()    # 이어받아도 되는 퇴역 구역
+        self.land_sent = {}     # drone -> 비상 land 를 보낸 시각
+        self.taken_by = {}      # 퇴역 구역 -> 이어받은 드론
+        self._warn_t = {}
         self._reset_state()
 
     def _reset_state(self):
-        self.idx = {d: 0 for d in SEARCHERS}
-        self.dirn = {d: 1 for d in SEARCHERS}
+        self.zone_list = {d: [d] for d in SEARCHERS}   # 드론 -> 순환할 구역 목록
+        self.cur_zone = {d: d for d in SEARCHERS}      # 드론 -> 지금 도는 구역
+        self.idx = {d: 0 for d in SEARCHERS}           # 현재 구역 경로 안의 웨이포인트
+        self.dirn = {d: 1 for d in SEARCHERS}          # 핑퐁 방향
         self.started_t = {}
+
+    # ---- 고장 처리 ----
+    def _retire_check(self, bb, t):
+        health = bb.get('health', {})
+        for d in SEARCHERS:
+            if d not in self.retired and health.get(d, 'OK') != 'OK':
+                self.retired[d] = t
+                why = bb.get('health_reason', {}).get(d, '')
+                print(f'[SEARCH] {d} 퇴역: {health.get(d)}' + (f' ({why})' if why else '')
+                      + f'. 구역 {d} 는 착륙 확인 후 다른 드론이 이어받는다', flush=True)
+            if d in self.retired:
+                self._handle_retired(bb, d, t)
+        bb['retired'] = set(self.retired)
+
+    def _handle_retired(self, bb, d, t):
+        if d in self.cleared:
+            return
+        p = bb['pose'].get(d)
+        fresh = p is not None and (t - p['t']) <= float(self.h.get('pose_max_age', 1.0))
+        if fresh and p['z'] <= float(TOL['landed_z']):
+            self.cleared.add(d)
+            print(f'[SEARCH] {d} 착륙 확인 (z={p["z"]:.2f} m). 구역 {d} 이어받기 허용', flush=True)
+            return
+        # 공중이거나 LOST: 비상 착륙 1회. 서비스가 준비 안 됐으면 다음 tick 재시도.
+        if d not in self.land_sent and self._land(bb, d):
+            self.land_sent[d] = t
+            if fresh:
+                print(f'[SEARCH] {d} 비상 착륙 명령 (z={p["z"]:.2f} m)', flush=True)
+            else:
+                print(f'[SEARCH] {d} LOST — land 를 best-effort 로 보냄 (도달 여부 확인 불가)', flush=True)
+        if not fresh:
+            timeout = float(self.h.get('lost_clear_timeout', 12.0))
+            if t - self.retired[d] >= timeout:
+                self.cleared.add(d)
+                print(f'[SEARCH WARNING] {d} LOST 로 착륙 미확인. 퇴역 후 {timeout:.0f} s 경과 → '
+                      f'내려앉았다고 보고 구역 {d} 를 넘긴다', flush=True)
+            return
+        # 신선한 pose 인데 아직 공중: 하강 시간은 기다리고, 그 뒤에도 떠 있으면 주기적으로 경고
+        settle = _dur_of('land', d) + 2.0
+        since_land = (t - self.land_sent[d]) if d in self.land_sent else 0.0
+        if since_land >= settle and t - self._warn_t.get(d, -1e9) >= float(self.h.get('stale_warn_period', 5.0)):
+            self._warn_t[d] = t
+            print(f'[SEARCH WARNING] {d} 여전히 공중 (z={p["z"]:.2f} m). 착륙 확인 전까지 '
+                  f'구역 {d} 는 넘기지 않는다', flush=True)
+
+    def _effective_zones(self, bb):
+        """드론 -> 구역 id 목록. 자기 구역이 먼저, 이어받은 구역이 뒤에."""
+        alive = [d for d in SEARCHERS if d not in self.retired]
+        assign = {d: [d] for d in alive}
+        if not alive:
+            return assign
+        for dead in SEARCHERS:
+            if dead in alive or dead not in self.cleared:
+                continue
+            helper = self.taken_by.get(dead)
+            if helper is None or helper in self.retired:
+                cx, cy = _zone_center(self.zones[dead])
+
+                def key(d):
+                    p = bb['pose'].get(d)
+                    dist = _dist2(p['x'], p['y'], cx, cy) if p else float('inf')
+                    return (dist, SEARCHERS.index(d))
+                helper = min(alive, key=key)
+                self.taken_by[dead] = helper
+                print(f'[SEARCH] 구역 {dead} → {helper} 이어받음 (구역 중심 최근접, 동점은 목록 순)', flush=True)
+            assign[helper].append(dead)
+        return assign
+
+    def _apply_assign(self, bb):
+        assign = self._effective_zones(bb)
+        for d, lst in assign.items():
+            if lst != self.zone_list[d]:
+                print(f'[SEARCH] {d} 구역 목록 {self.zone_list[d]} → {lst}', flush=True)
+                self.zone_list[d] = list(lst)
+                if self.cur_zone[d] not in lst:       # 돌던 구역이 목록에서 빠짐: 자기 구역부터 다시
+                    self.cur_zone[d] = lst[0]
+                    self.idx[d], self.dirn[d] = 0, 1
+        bb['zone_assign'] = {d: list(v) for d, v in assign.items()}
 
     async def run(self, agent, bb):
         t = bb['now']
+        self._retire_check(bb, t)
+        self._apply_assign(bb)
+
         prev_started = None
         for d in SEARCHERS:
+            if d in self.retired:
+                continue
             # 출격 게이트: 앞 드론이 출격한 지 stagger 이상
             if d not in self.started_t:
                 if prev_started is not None and t - prev_started < self.stagger:
@@ -872,23 +1342,33 @@ class Search(_MultiDroneAction):
             if p['z'] < float(TOL['airborne_z']):
                 self._takeoff(bb, d)
                 continue
-            path = self.paths[d]
-            gx, gy, gz = path[self.idx[d]]
+            path = self.paths[self.cur_zone[d]]
+            gz = _alt('search', d)                    # 남의 구역이라도 내 고도로 난다
+            gx, gy, _ = path[self.idx[d]]
             if self._at(bb, d, gx, gy, None, self.tol):
-                # 다음 웨이포인트 (핑퐁)
                 n = self.idx[d] + self.dirn[d]
                 if n >= len(path) or n < 0:
-                    self.dirn[d] *= -1
-                    n = self.idx[d] + self.dirn[d]
+                    lst = self.zone_list[d]
+                    if self.idx[d] == 0 and len(lst) > 1:
+                        # 시작점으로 되돌아옴 = 왕복 완료. 다음 구역으로 (round-robin)
+                        nz = lst[(lst.index(self.cur_zone[d]) + 1) % len(lst)]
+                        print(f'[SEARCH] {d} 구역 {self.cur_zone[d]} 왕복 완료 → 구역 {nz} 로', flush=True)
+                        self.cur_zone[d], self.dirn[d] = nz, 1
+                        path, n = self.paths[nz], 0
+                    else:
+                        # 끝점: 방향을 뒤집어 핑퐁
+                        self.dirn[d] *= -1
+                        n = self.idx[d] + self.dirn[d]
                 self.idx[d] = n
-                gx, gy, gz = path[n]
+                gx, gy, _ = path[n]
             self._goto(bb, d, gx, gy, gz)
-        bb['search_progress'] = dict(self.idx)
+        bb['search_progress'] = {d: (self.cur_zone[d], self.idx[d]) for d in SEARCHERS if d not in self.retired}
         self.status = Status.RUNNING
         return self.status
 
     def halt(self):
-        # 타겟 발견으로 halt 되면 다음 사이클을 위해 출격 순서·레인 인덱스 초기화
+        # 타겟 발견으로 halt 되면 다음 사이클을 위해 출격 순서·구역 포인터 초기화.
+        # 퇴역·클리어·이어받기 기록은 이번 실행 동안 유효하므로 남긴다.
         super().halt()
         self._reset_state()
 
@@ -945,7 +1425,11 @@ class CatchTarget(_MultiDroneAction):
             self.status = Status.FAILURE
             return self.status
         gx, gy = float(pn['x']), float(pn['y'])
-        cands = [d for d in SEARCHERS if d in bb['pose'] and bb['pose'][d]['z'] >= float(TOL['airborne_z'])]
+        # 퇴역 드론은 후보에서 뺀다. LOST 드론은 bb['pose'] 에 옛 값이 남아 공중으로 보일 수 있고,
+        # finder 였던 드론이 퇴역하면 여기서 자동으로 최근접 생존 드론으로 넘어간다.
+        retired = bb.get('retired', ())
+        cands = [d for d in SEARCHERS if d not in retired
+                 and d in bb['pose'] and bb['pose'][d]['z'] >= float(TOL['airborne_z'])]
         if not cands:
             self.status = Status.FAILURE
             return self.status

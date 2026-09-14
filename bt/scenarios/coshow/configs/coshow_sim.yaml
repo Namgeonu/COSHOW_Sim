@@ -20,23 +20,32 @@ bt_runner:
 coshow:
 
   # Phase 1: 관측
-  observe_drone: cf230
-  observe_point: {x: 0.0, y: 0.0, yaw: 1.57}     # limo_a 관측 지점 (P0)
+  observe_point: {x: -2.0, y: 0.0, yaw: 1.57}     # limo_a 관측 지점 (P0)
+  limo_approach_dx: -0.8   # P_N 에서 x 로 이만큼 물러선 지점이 P_N_limo. 건물 지붕 마커라 리모는 x- 쪽으로 물러서 건물 앞에 선다
   mission_marker_ids: [11, 14]      # 참관자 마커 ID 범위 (포함)
   marker_id_offset: 10              # target_id = mission_id - 10
   confirm_frames: 3                 # 연속 검출 프레임 수 (확정 조건)
 
   # Phase 2/3: 탐색·구조
-  searchers: [cf231, cf232, cf233]
   seen_now_window: 0.5              # "지금 target을 보고 있다" 판정 창(초)
   recheck_timeout: 15.0             # 재검출 대기 타임아웃(초). 초과 시 P_N 그대로 확정
   rescue_sec: 10.0                  # limo_b 도착 후 구조 대기(초)
 
-  drones:
-    cf230: {base: [-4.2, 0.6]}
-    cf231: {base: [-4.2, 0.2]}
-    cf232: {base: [-4.2, -0.2]}
-    cf233: {base: [-4.2, -0.6]}
+  # ── 투입 기체 명단: 역할(슬롯)과 기체의 분리 ──
+  # 슬롯이 자리(base)·고도·탐색 구역을 정하고, 어떤 기체가 그 슬롯에 들어갈지는 실행마다 정한다.
+  # scenarios/coshow/roster.py 가 BT 시작 전에 slots → drones / observe_drone / searchers /
+  # search.zones 로 풀어 쓴다 (bt_nodes.py 는 그 네 키만 읽는다).
+  # 시뮬 제약: Webots 스폰 위치는 월드 파일에 박혀 있어 기체를 바꿔 꽂아도 출발 자리는 그대로다.
+  # base 는 복귀 목적지로만 작동한다. 실기체는 사람이 슬롯 자리에 놓고 시작하므로 문제없다.
+  roster:
+    enabled: false                            # true 면 BT 시작 시 4칸 프롬프트. --roster / --no-roster 가 우선
+    available: [cf230, cf231, cf232, cf233]   # 입력 검증용 보유 목록 (Webots 월드에 있는 4대)
+  slots:
+    mission:  {default: cf230, base: [-4.2,  0.6]}
+    # 탐색 3슬롯. 6x6 잔디를 y축 기준 2m 폭 3구역으로 분할, 각 구역 4레인(폭 0.5). 순서 = 출격 순서
+    search_a: {default: cf231, base: [-4.2,  0.2], zone: {x: [-3.0, 3.0], y: [ 1.0,  3.0]}}   # y+     레인중앙 1.25,1.75,2.25,2.75
+    search_b: {default: cf232, base: [-4.2, -0.2], zone: {x: [-3.0, 3.0], y: [-1.0,  1.0]}}   # 가운데 레인중앙 -0.75,-0.25,0.25,0.75
+    search_c: {default: cf233, base: [-4.2, -0.6], zone: {x: [-3.0, 3.0], y: [-3.0, -1.0]}}   # y-     레인중앙 -2.75,-2.25,-1.75,-1.25
 
   limos:
     # base 는 "복귀 목적지". IsMissionComplete 가 이 값으로 완료를 판정하므로
@@ -49,11 +58,7 @@ coshow:
     lane_spacing: 0.5
     wp_tol: 0.2
     lane_axis: y                    # 레인을 y 로 쪼개고 x축 왕복 (드론이 x=-4.2 대기 라인에서 진입)
-    zones:                          # 6x6 잔디를 y축 기준 2m 폭 3구역으로 분할, 각 구역 4레인(폭 0.5)
-                                    # 고도는 altitudes.search 로 통일 (구역별 z 없음)
-      cf231: {x: [-3.0, 3.0], y: [ 1.0,  3.0]}   # y+ (대기 y=0.2) 레인중앙 y: 1.25,1.75,2.25,2.75
-      cf232: {x: [-3.0, 3.0], y: [-1.0,  1.0]}   # 가운데(대기 y=-0.2) 레인중앙 y: -0.75,-0.25,0.25,0.75
-      cf233: {x: [-3.0, 3.0], y: [-3.0, -1.0]}   # y- (대기 y=-0.6) 레인중앙 y: -2.75,-2.25,-1.75,-1.25
+    # zones 는 여기 적지 않는다. slots.search_*.zone 에서 roster 가 만든다 (고도는 altitudes.search).
 
   tolerances:
     drone_at: 0.15                  # 드론 도착 반경(m)
@@ -61,6 +66,19 @@ coshow:
     limo_at: 0.3                    # Nav2 SUCCEEDED 기록의 goal 과 노드 목표를 대조하는 허용치(m). pose 판정 아님
     airborne_z: 0.4                 # 이 이상이면 공중
     landed_z: 0.06                  # 이 이하이면 착륙
+
+  # 기체 상태 판정 (UpdateBlackboard → bb['health']). Search 가 OK 아닌 탐색 드론을 퇴역시켜
+  # 비상 착륙시키고, 착륙이 확인되면 그 구역을 최근접 생존 드론이 이어받는다.
+  # STUCK 규칙은 리모 Nav2 의 SimpleProgressChecker 와 같다. 블록을 지우면 판정을 끈다.
+  health:
+    pose_max_age: 1.0               # LOST : pose 가 이 시간(초) 넘게 안 오면
+    required_movement_radius: 0.3   # STUCK: takeoff/go_to 가 살아 있는데 이 거리(m)를
+    movement_time_allowance: 8.0    #        이 시간(초) 안에 못 벗어나면. 목표 도달 후 호버는 정상
+    goal_reached_tol: 0.3           # "목표 도달" 판정 반경(m)
+    frame_max_age: 3.0              # BLIND: 카메라 프레임이 이 시간 넘게 안 오면. 0 이면 끔
+    t_recover: 3.0                  # 이상이 이 시간 동안 없으면 OK 복귀 (이미 퇴역한 드론은 무관)
+    lost_clear_timeout: 12.0        # LOST 퇴역 드론: 이 시간 지나면 착륙했다고 보고 구역을 넘김
+    stale_warn_period: 5.0          # 착륙이 확인되지 않는 퇴역 드론 경고 주기(초)
 
   # 명령 duration(초). go_to 는 현재 위치→목표 xy 거리로 short/long 구분
   durations:

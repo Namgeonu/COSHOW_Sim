@@ -4,16 +4,16 @@
   <BehaviorTree ID="phase1_observe">
     <ReactiveSequence>
       <ReactiveFallback>
-        <IsLimoAt robot="limo_a" x="0.0" y="0.0"/>
-        <LimoNavigateTo robot="limo_a" x="0.0" y="0.0" yaw="1.57"/>
+        <IsLimoAt robot="limo_a" x="-2.0" y="0.0"/>
+        <LimoNavigateTo robot="limo_a" x="-2.0" y="0.0" yaw="1.57"/>
       </ReactiveFallback>
       <ReactiveFallback>
-        <IsDroneAirborne robot="cf230"/>
-        <DroneTakeoff robot="cf230"/>
+        <IsDroneAirborne robot_key="observe"/>
+        <DroneTakeoff robot_key="observe"/>
       </ReactiveFallback>
       <ReactiveFallback>
-        <IsDroneAt robot="cf230" x="0.0" y="0.0" alt="observe"/>
-        <DroneGoTo robot="cf230" x="0.0" y="0.0" alt="observe"/>
+        <IsDroneAt robot_key="observe" x="-2.0" y="0.0" alt="observe"/>
+        <DroneGoTo robot_key="observe" x="-2.0" y="0.0" alt="observe"/>
       </ReactiveFallback>
       <Idle/>
     </ReactiveSequence>
