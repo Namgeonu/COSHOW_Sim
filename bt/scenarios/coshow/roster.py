@@ -78,11 +78,11 @@ def _prompt(c, available, defaults):
     print('\n═══ 투입 기체 선택 ═══', flush=True)
     if available:
         print('보유 기체:', ' '.join(available), flush=True)
-    print('(빈 입력 = 대괄호 안 기본값. 숫자만 입력해도 된다: 232 → cf232)', flush=True)
+    print('(숫자만 입력해도 된다: 232 → cf232. 빈 칸은 기본 배정)', flush=True)
     while True:
         mapping = {}
         for s in slots:
-            raw = input(f'{_label(s):<{w}} [{defaults[s]}]: ')
+            raw = input(f'{_label(s):<{w}} : ')
             mapping[s] = _norm(raw) if raw.strip() else defaults[s]
         err = _validate(mapping, available)
         if err:

@@ -1,3 +1,4 @@
+# === 시뮬 전용 === coshow_rehearsal.yaml 사본, preflight.required 만 false. 실기체는 원본을 쓴다.
 # COSHOW 실기체 약식 리허설 설정 (4x4 m 실내 테스트장, 라이트하우스 + crazyswarm2)
 # 실행: python3 main.py --config scenarios/coshow/configs/coshow_rehearsal.yaml
 #
@@ -108,7 +109,7 @@ coshow:
     goal_reached_tol: 0.3
     frame_max_age: 3.0              # AI-deck 스트림. 0 이면 BLIND 판정 끔
     t_recover: 3.0
-    lost_clear_timeout: 12.0
+    lost_clear_timeout: 8.0         # 시뮬: 이어받기 확인용 단축 (실기체 원본은 12)
     stale_warn_period: 5.0
 
   # 전역 기본값. 드론별 재정의가 없는 키만 여기서 읽힌다 (지금은 전부 여기서 읽힌다).
@@ -152,7 +153,7 @@ coshow:
   # kalman_variance 는 crazyflies.yaml 의 custom_topics 로 켜야 한다
   #   (vars: kalman.varPX, kalman.varPY, kalman.varPZ). 2 Hz 면 10 샘플에 약 5 초.
   preflight:
-    required: true
+    required: false        # 시뮬 전용 사본: crazyswarm2 없음. 실기체는 coshow_rehearsal.yaml (true)
     kalman_history_len: 10        # 축별 최근 샘플 수. 이만큼 쌓이기 전에는 ready 아님
     kalman_threshold: 0.001       # 축별 max(history) - min(history) 가 이 값 미만이어야 수렴
     pose_max_age: 0.8             # 마지막 pose 가 이보다 오래되면 ready 아님 (초)

@@ -430,6 +430,9 @@ class UpdateBlackboard(ConditionWithROSTopics):
         bb['observe'] = C['observe_drone']
         bb['searchers'] = list(SEARCHERS)
         bb['all_drones'] = list(DRONES)
+        # 관측점(P0)을 블랙보드에 노출. phase1_observe.xml 이 좌표를 하드코딩하지 않고
+        # target_key="observe_point" 로 읽어, 통합(-2,0)·리허설(0,0)이 각자 config 값으로 돈다.
+        bb['observe_point'] = dict(OBS)
 
         with self._lock:
             bb['pose'] = {k: dict(v) for k, v in self._pose.items()}
@@ -545,7 +548,13 @@ class UpdateBlackboard(ConditionWithROSTopics):
             if ref is None or ref['cmd_t'] != cmd['t']:
                 ref = {'x': p['x'], 'y': p['y'], 'z': p['z'], 't': t, 'cmd_t': cmd['t']}
                 self._prog_ref[d] = ref
-            g = cmd['goal']                        # go_to: (x,y,z)  takeoff: (height,)
+            g = cmd['goal']
+            # goal 형식이 두 가지다: Search/ReturnDrones 계열은 값만 담고
+            # (go_to (x,y,z) / takeoff (height,)), XML 노드(_DroneService)는 맨 앞에
+            # 종류 문자열을 함께 담는다 (('go_to',x,y,z) / ('takeoff',height)).
+            # 문자열이 앞에 오면 벗겨내 값만 남긴다.
+            if g and isinstance(g[0], str):
+                g = g[1:]
             gtol = float(h.get('goal_reached_tol', 0.3))
             if cmd['kind'] == 'go_to':
                 reached = _dist2(p['x'], p['y'], g[0], g[1]) <= gtol and abs(p['z'] - g[2]) <= gtol
@@ -1236,8 +1245,9 @@ class Search(_MultiDroneAction):
         self._reset_state()
 
     def _reset_state(self):
-        self.zone_list = {d: [d] for d in SEARCHERS}   # 드론 -> 순환할 구역 목록
-        self.cur_zone = {d: d for d in SEARCHERS}      # 드론 -> 지금 도는 구역
+        self.zone_list = {d: [d] for d in SEARCHERS}   # 드론 -> 순환할 구역 목록 (자기 구역이 중복될 수 있음)
+        self.cyc = {d: 0 for d in SEARCHERS}           # 드론 -> zone_list 안의 현재 위치 (값이 아니라 인덱스로 순환)
+        self.cur_zone = {d: d for d in SEARCHERS}      # 드론 -> 지금 도는 구역 (= zone_list[cyc], 경로/로그 편의용)
         self.idx = {d: 0 for d in SEARCHERS}           # 현재 구역 경로 안의 웨이포인트
         self.dirn = {d: 1 for d in SEARCHERS}          # 핑퐁 방향
         self.started_t = {}
@@ -1287,11 +1297,17 @@ class Search(_MultiDroneAction):
                   f'구역 {d} 는 넘기지 않는다', flush=True)
 
     def _effective_zones(self, bb):
-        """드론 -> 구역 id 목록. 자기 구역이 먼저, 이어받은 구역이 뒤에."""
+        """드론 -> 순환할 구역 id 목록. 자기 구역을 이어받은 구역 사이사이에 끼운다.
+
+        예) cf232 가 cf231·cf233 을 이어받으면 [cf232, cf231, cf232, cf233] 로 만들어,
+        순환이 cf232→cf231→cf232→cf233→cf232→... 가 된다. 이어받은 구역으로 갈 때마다
+        자기 구역을 거치므로, 위 구역에서 아래 구역으로 가운데를 건너뛰지 않는다.
+        (자기 구역이 목록에 여러 번 나오므로 run() 은 값 검색이 아니라 위치 포인터 cyc 로 순환한다.)
+        """
         alive = [d for d in SEARCHERS if d not in self.retired]
-        assign = {d: [d] for d in alive}
         if not alive:
-            return assign
+            return {d: [d] for d in alive}
+        borrowed = {d: [] for d in alive}
         for dead in SEARCHERS:
             if dead in alive or dead not in self.cleared:
                 continue
@@ -1306,7 +1322,13 @@ class Search(_MultiDroneAction):
                 helper = min(alive, key=key)
                 self.taken_by[dead] = helper
                 print(f'[SEARCH] 구역 {dead} → {helper} 이어받음 (구역 중심 최근접, 동점은 목록 순)', flush=True)
-            assign[helper].append(dead)
+            borrowed[helper].append(dead)
+        assign = {}
+        for d in alive:
+            lst = [d]
+            for b in borrowed[d]:
+                lst += [b, d]            # 이어받은 구역 뒤에 자기 구역을 끼운다
+            assign[d] = lst[:-1] if len(lst) > 1 else lst   # 맨 끝 자기 구역은 순환이 되메우므로 제거
         return assign
 
     def _apply_assign(self, bb):
@@ -1315,9 +1337,11 @@ class Search(_MultiDroneAction):
             if lst != self.zone_list[d]:
                 print(f'[SEARCH] {d} 구역 목록 {self.zone_list[d]} → {lst}', flush=True)
                 self.zone_list[d] = list(lst)
-                if self.cur_zone[d] not in lst:       # 돌던 구역이 목록에서 빠짐: 자기 구역부터 다시
-                    self.cur_zone[d] = lst[0]
-                    self.idx[d], self.dirn[d] = 0, 1
+                # 목록이 바뀌면 자기 구역(맨 앞)부터 다시 순환한다. 배정 변화는 드물어(퇴역·클리어
+                # 시점) 진행 중 왕복을 끊는 대가가 작고, 중복 항목이 있어 포인터를 새로 잡아야 한다.
+                self.cyc[d] = 0
+                self.cur_zone[d] = lst[0]
+                self.idx[d], self.dirn[d] = 0, 1
         bb['zone_assign'] = {d: list(v) for d, v in assign.items()}
 
     async def run(self, agent, bb):
@@ -1350,8 +1374,10 @@ class Search(_MultiDroneAction):
                 if n >= len(path) or n < 0:
                     lst = self.zone_list[d]
                     if self.idx[d] == 0 and len(lst) > 1:
-                        # 시작점으로 되돌아옴 = 왕복 완료. 다음 구역으로 (round-robin)
-                        nz = lst[(lst.index(self.cur_zone[d]) + 1) % len(lst)]
+                        # 시작점으로 되돌아옴 = 왕복 완료. 목록의 다음 위치로 (자기 구역이 중복될 수
+                        # 있으므로 값 검색이 아니라 위치 포인터 cyc 를 한 칸 전진시킨다)
+                        self.cyc[d] = (self.cyc[d] + 1) % len(lst)
+                        nz = lst[self.cyc[d]]
                         print(f'[SEARCH] {d} 구역 {self.cur_zone[d]} 왕복 완료 → 구역 {nz} 로', flush=True)
                         self.cur_zone[d], self.dirn[d] = nz, 1
                         path, n = self.paths[nz], 0

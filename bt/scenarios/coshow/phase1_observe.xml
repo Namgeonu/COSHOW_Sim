@@ -1,19 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root BTCPP_format="4">
-  <!-- Phase 1: limo_a → 관측점 P0, 드론 A 이륙 → P0 상공 → 마커 검출 대기 -->
+  <!-- Phase 1: limo_a → 관측점 P0, 드론 A 이륙 → P0 상공 → 마커 검출 대기.
+       좌표는 하드코딩하지 않고 config 의 observe_point 를 target_key 로 읽는다.
+       (통합·리허설이 이 서브트리를 공유하는데 관측점이 서로 다르기 때문:
+        통합 -2,0 / 리허설 0,0. 하드코딩하면 한쪽이 벽으로 간다.) -->
   <BehaviorTree ID="phase1_observe">
     <ReactiveSequence>
       <ReactiveFallback>
-        <IsLimoAt robot="limo_a" x="-2.0" y="0.0"/>
-        <LimoNavigateTo robot="limo_a" x="-2.0" y="0.0" yaw="1.57"/>
+        <IsLimoAt robot="limo_a" target_key="observe_point"/>
+        <LimoNavigateTo robot="limo_a" target_key="observe_point" yaw="1.57"/>
       </ReactiveFallback>
       <ReactiveFallback>
         <IsDroneAirborne robot_key="observe"/>
         <DroneTakeoff robot_key="observe"/>
       </ReactiveFallback>
       <ReactiveFallback>
-        <IsDroneAt robot_key="observe" x="-2.0" y="0.0" alt="observe"/>
-        <DroneGoTo robot_key="observe" x="-2.0" y="0.0" alt="observe"/>
+        <IsDroneAt robot_key="observe" target_key="observe_point" alt="observe"/>
+        <DroneGoTo robot_key="observe" target_key="observe_point" alt="observe"/>
       </ReactiveFallback>
       <Idle/>
     </ReactiveSequence>
