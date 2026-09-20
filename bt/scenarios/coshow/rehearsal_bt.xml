@@ -36,6 +36,11 @@
            별도 tools/preflight_node.py 실행이 필요 없다.
            config 의 preflight.required 가 false 면(시뮬) 항상 통과. -->
       <PreflightReady/>
+      <!-- 전 기체 고장 대응 + 미션 역할 승계 (항상 SUCCESS 라 흐름을 막지 않는다).
+           health 가 OK 아닌 기체를 국면과 무관하게 퇴역·비상착륙시키고, 미션 마커 확정 전에
+           미션 담당이 고장 나면 착륙 확인 후 health OK 인 탐색기에게 역할을 승계한다.
+           (Search 는 미션 확정 후에야 tick 되므로 관측 국면의 고장은 이 노드만 잡을 수 있다) -->
+      <Observer/>
       <ReactiveFallback>
         <IsMissionComplete/>
         <ReactiveSequence>
@@ -56,9 +61,11 @@
                   <!-- 타겟 마커를 얻기 위한 행동: cf230 착륙 → (limo_a 복귀 ∥ 탐색) -->
                   <SetLed robot="all" color="blue"/>
                   <ReactiveSequence>
-                    <!-- cf230 이 기지에 착륙할 때까지 여기서 멈춘다 (고도 충돌 회피) -->
+                    <!-- 미션기가 기지에 착륙할 때까지 여기서 멈춘다 (고도 충돌 회피).
+                         latch: 한 번 착륙이 확인되면 계속 통과 — 미션기가 탐색에 투입되어
+                         재이륙해도 이 관문이 도로 닫혀 복귀 명령과 싸우지 않게 한다. -->
                     <ReactiveFallback>
-                      <AreDronesReturn robots_key="observe"/>
+                      <AreDronesReturn robots_key="observe" latch="true"/>
                       <ReturnDrones robots_key="observe"/>
                     </ReactiveFallback>
                     <Parallel success_count="2">
@@ -135,6 +142,7 @@
       <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="yaw"/><input_port name="target_key"/>
     </Action>
     <Action ID="Search" editable="true"/>
+    <Action ID="Observer" editable="true"/>
     <Action ID="ReturnDrones" editable="true">
       <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
     </Action>
@@ -153,7 +161,7 @@
     <Condition ID="IsDroneAirborne" editable="true"><input_port name="robot"/></Condition>
     <Condition ID="IsDroneLanded" editable="true"><input_port name="robot"/></Condition>
     <Condition ID="AreDronesReturn" editable="true">
-      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
+      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/><input_port name="latch"/>
     </Condition>
     <Condition ID="IsLimoAt" editable="true">
       <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="target_key"/><input_port name="tol"/>

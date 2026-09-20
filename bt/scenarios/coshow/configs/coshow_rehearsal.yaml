@@ -53,7 +53,9 @@ coshow:
     mission:
       default: cf230
       base: [-1.0, 0.0]
-      altitudes: {takeoff: 0.7, observe: 0.7, capture: 0.7, return: 0.5}
+      # search 1.0: 탐색기 부족 시 미션기가 탐색에 투입될 때 쓰는 전용 고도층 (0.8/1.2 사이).
+      # 퇴역한 기체의 고도층은 재사용하지 않는다 (LOST 기체가 그 층에 떠 있을 수 있다).
+      altitudes: {takeoff: 0.7, observe: 0.7, capture: 0.7, return: 0.5, search: 1.0}
     # 탐색 3슬롯. 고도를 0.6 / 0.8 / 1.2 로 나눠 x·y 추정이 흔들려도 충돌하지 않게 한다.
     # 복귀 때도 고도를 유지한다 (내려오면 서로 같은 평면에서 만난다). 순서 = 출격 순서.
     # lane_spacing 이 구역 y폭과 같아 레인 1개 = x축 왕복만 한다.
@@ -83,6 +85,9 @@ coshow:
     stagger_sec: 3.0
     wp_tol: 0.2
     lane_axis: y
+    # 생존 탐색기가 3대 미만이면 미션기(미션 완수·착륙 후, health OK)를 탐색에 투입한다.
+    # 투입 구역은 "원 담당의 착륙이 확인된(클리어)" 구역만. 매 tick 재평가라 탐색 중간 고장에도 반응.
+    observe_join: true
     # lane_spacing 을 각 구역의 y폭과 같게 두면 n_lanes = 1 이 되어
     # 레인 중앙 y 를 고정한 채 x 만 왕복한다 (지그재그 없음).
     lane_spacing: 0.4
@@ -102,13 +107,22 @@ coshow:
   # 실기체는 시뮬보다 느리게 난다 (goto_short 10 s / 3 m ≈ 0.3 m/s, 이륙 0.6 m / 8 s).
   # 0.3 m 를 움직이는 데 최대 4~5 s 라 여유를 10 s 로 둔다. pose 는 5 Hz.
   health:
-    pose_max_age: 1.0
+    pose_max_age: 5.0
     required_movement_radius: 0.3
     movement_time_allowance: 10.0
     goal_reached_tol: 0.3
     frame_max_age: 3.0              # AI-deck 스트림. 0 이면 BLIND 판정 끔
     t_recover: 3.0
-    lost_clear_timeout: 12.0
+    # 미션기 고장 시 탐색기가 역할을 승계한다 (Observer 노드). false 면 승계·전기체 퇴역 대응 끔
+    mission_takeover: true
+    # LOST(pose 두절) 기체의 구역 이양/역할 승계 정책:
+    #   strict : 착륙 확인 전 절대 불가 (이륙 이력 없으면 즉시 가능). ⚠️ 실기 필수 —
+    #            BT 만 pose 를 잃고 기체는 계속 호버하는 경우, timeout 정책은 비행 중인 기체의
+    #            구역으로 다른 기체를 보낸다 (2026-09 실기 리허설에서 실제 목격된 사고 경로).
+    #   timeout: 퇴역 후 lost_clear_timeout 경과 시 허용 (시뮬 전용 — 고장 주입 테스트는
+    #            드라이버를 죽여 pose 가 영영 안 돌아오므로 strict 면 테스트가 진행되지 않는다)
+    lost_clear_policy: strict
+    lost_clear_timeout: 12.0        # timeout 정책에서만 쓰인다
     stale_warn_period: 5.0
 
   # 전역 기본값. 드론별 재정의가 없는 키만 여기서 읽힌다 (지금은 전부 여기서 읽힌다).
@@ -153,11 +167,19 @@ coshow:
   #   (vars: kalman.varPX, kalman.varPY, kalman.varPZ). 2 Hz 면 10 샘플에 약 5 초.
   preflight:
     required: true
+    # BT 시작 전 사전점검 게이트 (preflight_gate.py — 로스터 직후, 트리 기동 전).
+    # gate_window_sec 동안 pose·카메라(+실기: 칼만·상태) 를 수집해 기체×항목 점검표를 출력하고
+    # y/n 승인을 받는다. 문제 기체를 안고 y 하면 그 기체는 DEGRADED 로 t=0 부터 재배치가 발동한다.
+    # 비대화형(자동 실행)에서는: 문제 없으면 자동 진행, 있으면 중단.
+    gate: true
+    gate_window_sec: 10.0
     kalman_history_len: 10        # 축별 최근 샘플 수. 이만큼 쌓이기 전에는 ready 아님
     kalman_threshold: 0.001       # 축별 max(history) - min(history) 가 이 값 미만이어야 수렴
     pose_max_age: 0.8             # 마지막 pose 가 이보다 오래되면 ready 아님 (초)
-    pose_tolerance: 0.10          # 초기위치 대비 x/y/z 축별 허용 오차 (m)
+    pose_tolerance: 0.30          # 초기위치 대비 x/y/z 축별 허용 오차 (m). 배치 실수만 잡는 느슨한 값
     pose_stable_time: 2.0         # 허용 오차 안에 연속으로 머물러야 하는 시간 (초). 벗어나면 0 부터 다시
     status_max_age: 1.0           # 마지막 /status 가 이보다 오래되면 ready 아님 (초)
+    cam_max_age: 2.0              # 카메라 프레임이 이보다 오래되면 ready 아님 (초). 검출 노드 발행=영상 수신
+    cam_startup_grace: 8.0        # 시작 후 첫 프레임까지 유예 (초). 이 안에 프레임 0장이면 카메라 없음으로 본다
 
   led_topic_suffix: led

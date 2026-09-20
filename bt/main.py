@@ -29,6 +29,10 @@ apply_roster(config,
              searchers=args.searchers.split(',') if args.searchers else None,
              interactive=not args.no_roster,
              force_prompt=args.roster)
+# 사전점검 게이트 (preflight.gate). 점검표 브리핑 → y/n 승인 → 결함 승인 시 config 에
+# degraded 를 채워 bt_nodes 가 t=0 부터 재배치를 발동한다. BTRunner import 전이어야 한다.
+from scenarios.coshow.preflight_gate import run_gate
+run_gate(config)
 from modules.bt_runner import BTRunner
 bt_runner = BTRunner(config)
 

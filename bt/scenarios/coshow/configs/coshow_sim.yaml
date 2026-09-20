@@ -55,6 +55,7 @@ coshow:
 
   search:
     stagger_sec: 3.0                # B→C→D 출격 시간차
+    observe_join: true              # 생존 탐색기 < 3 이면 미션기를 탐색에 투입 (클리어 구역만)
     lane_spacing: 0.5
     wp_tol: 0.2
     lane_axis: y                    # 레인을 y 로 쪼개고 x축 왕복 (드론이 x=-4.2 대기 라인에서 진입)
@@ -71,12 +72,14 @@ coshow:
   # 비상 착륙시키고, 착륙이 확인되면 그 구역을 최근접 생존 드론이 이어받는다.
   # STUCK 규칙은 리모 Nav2 의 SimpleProgressChecker 와 같다. 블록을 지우면 판정을 끈다.
   health:
-    pose_max_age: 1.0               # LOST : pose 가 이 시간(초) 넘게 안 오면
+    pose_max_age: 5.0               # LOST : pose 가 이 시간(초) 넘게 안 오면
     required_movement_radius: 0.3   # STUCK: takeoff/go_to 가 살아 있는데 이 거리(m)를
     movement_time_allowance: 8.0    #        이 시간(초) 안에 못 벗어나면. 목표 도달 후 호버는 정상
     goal_reached_tol: 0.3           # "목표 도달" 판정 반경(m)
     frame_max_age: 3.0              # BLIND: 카메라 프레임이 이 시간 넘게 안 오면. 0 이면 끔
     t_recover: 3.0                  # 이상이 이 시간 동안 없으면 OK 복귀 (이미 퇴역한 드론은 무관)
+    mission_takeover: true          # 미션기 고장 시 탐색기가 역할 승계 (Observer 노드)
+    lost_clear_policy: timeout      # 시뮬 전용 완화. 실기는 strict (coshow_rehearsal.yaml 참조)
     lost_clear_timeout: 12.0        # LOST 퇴역 드론: 이 시간 지나면 착륙했다고 보고 구역을 넘김
     stale_warn_period: 5.0          # 착륙이 확인되지 않는 퇴역 드론 경고 주기(초)
 

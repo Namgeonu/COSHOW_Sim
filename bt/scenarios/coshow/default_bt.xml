@@ -15,6 +15,8 @@
   <BehaviorTree ID="coshow">
     <ReactiveSequence>
       <UpdateBlackboard/>
+      <!-- 전 기체 고장 대응 + 미션 역할 승계 (항상 SUCCESS 라 흐름을 막지 않는다). rehearsal_bt 참조 -->
+      <Observer/>
       <ReactiveFallback>
         <IsMissionComplete/>
         <ReactiveSequence>
@@ -39,8 +41,9 @@
                       <IsLimoAt robot="limo_a" x="-4.0" y="2.0"/>
                       <LimoNavigateTo robot="limo_a" x="-4.0" y="2.0" yaw="0.0"/>
                     </ReactiveFallback>
+                    <!-- latch: 미션기가 착륙 후 탐색에 투입(재이륙)돼도 복귀 관문이 도로 닫히지 않게 -->
                     <ReactiveFallback>
-                      <AreDronesReturn robots_key="observe"/>
+                      <AreDronesReturn robots_key="observe" latch="true"/>
                       <ReturnDrones robots_key="observe"/>
                     </ReactiveFallback>
                     <Search/>
@@ -113,6 +116,7 @@
       <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="yaw"/><input_port name="target_key"/>
     </Action>
     <Action ID="Search" editable="true"/>
+    <Action ID="Observer" editable="true"/>
     <Action ID="ReturnDrones" editable="true">
       <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
     </Action>
@@ -130,7 +134,7 @@
     <Condition ID="IsDroneAirborne" editable="true"><input_port name="robot"/></Condition>
     <Condition ID="IsDroneLanded" editable="true"><input_port name="robot"/></Condition>
     <Condition ID="AreDronesReturn" editable="true">
-      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
+      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/><input_port name="latch"/>
     </Condition>
     <Condition ID="IsLimoAt" editable="true">
       <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="target_key"/><input_port name="tol"/>
