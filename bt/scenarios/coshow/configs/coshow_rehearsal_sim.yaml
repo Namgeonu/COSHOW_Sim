@@ -35,6 +35,7 @@ coshow:
   mission_marker_ids: [11, 14]
   marker_id_offset: 10              # target_id = mission_id - 10
   confirm_frames: 3
+  confirm_window_sec: 3.0          # 이 시간(초) 안에 confirm_frames 프레임 이상이면 확정 (0=연속 방식)
 
   # Phase 2/3: 탐색·구조
   seen_now_window: 0.5
@@ -176,3 +177,5 @@ coshow:
     cam_startup_grace: 8.0        # 시작 후 첫 프레임까지 유예 (초). 이 안에 프레임 0장이면 카메라 없음으로 본다
 
   led_topic_suffix: led
+  # 관람자 대시보드용 미션 상태 발행 토픽 (std_msgs/String JSON). null/'' 로 두면 발행 안 함.
+  mission_state_topic: /coshow/mission_state

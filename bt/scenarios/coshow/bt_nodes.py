@@ -30,6 +30,7 @@
   observe / searchers / all_drones : 이번 실행의 기체 명단. XML 은 기체 이름 대신 이 키를
                              robot_key / robots_key 로 참조한다 (roster 로 명단을 바꿔 끼우기 위해)
 """
+import json
 import math
 import signal
 import threading
@@ -54,6 +55,7 @@ from nav2_msgs.action import NavigateToPose
 from crazyflie_interfaces.msg import LogDataGeneric, Status as CfStatus   # BT 의 Status 와 이름이 겹친다
 from crazyflie_interfaces.srv import Takeoff, GoTo, Land, Arm
 from coshow_interfaces.msg import MarkerDetections
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
 # ── BT Node registration ──────────────────────────────────────────────────────
 CUSTOM_ACTION_NODES = [
@@ -339,7 +341,7 @@ class UpdateBlackboard(ConditionWithROSTopics):
 
         self._pose = {}                      # robot -> dict
         self._det_latest = {}                # drone -> msg
-        self._streak = {}                    # drone -> (id, count)   연속 검출 카운트
+        self._hits = {}                      # drone -> (id, [검출시각들])  슬라이딩 윈도우 확정
         self._mission_event = None           # 확정 대기 중인 이벤트
         self._target_events = []             # 확정된 target 검출 이벤트 큐
         self._seen_now = {}                  # drone -> t
@@ -364,6 +366,24 @@ class UpdateBlackboard(ConditionWithROSTopics):
                                      lambda m, r=l: self._on_limo_pose(r, m), 10)
 
         self._target_id_snapshot = None      # 콜백 스레드가 참조할 target_id 사본
+
+        # ── 대시보드용 미션 상태 발행부 ──────────────────────────────────────
+        # BT 는 로봇 행동만 담당한다는 원칙에 따라, 여기서 하는 일은 "이미 블랙보드에
+        # 있는 미션 상태를 그대로 직렬화해 한 토픽으로 내보내는" 얇은 발행뿐이다.
+        # 별도 관제 로직·의사결정은 없다. 관람자 대시보드(ros_io.py)가 이 토픽 하나만
+        # 구독해 신호색·후레쉬·캐러셀·팝업·상태칩을 그린다.
+        #   토픽 : mission_state_topic (기본 /coshow/mission_state)
+        #   타입 : std_msgs/String (JSON) — 대시보드 _validate_protocol 스키마에 맞춘다
+        #   QoS  : latched(TRANSIENT_LOCAL/RELIABLE/depth 1) — 늦게 붙은 대시보드도 즉시 최신 상태 수신
+        # mission_state_topic 을 null/'' 로 두면 발행하지 않는다(순수 실기 운용 시 끄기 가능).
+        self._mission_pub = None
+        topic = C.get('mission_state_topic', '/coshow/mission_state')
+        if topic:
+            self._mission_pub = node.create_publisher(
+                String, topic,
+                QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                           durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self._rescue_limo = C.get('rescue_limo') or (list(LIMOS)[-1] if LIMOS else 'limo_b')
 
         # Ctrl+C 로 BT 를 끌 때 기체를 공중에 두고 나가지 않도록.
         # 트리 구성은 메인 스레드에서 일어나므로 여기서 시그널을 잡을 수 있다.
@@ -391,11 +411,16 @@ class UpdateBlackboard(ConditionWithROSTopics):
             self._det_t[drone] = t
             tid = self._target_id_snapshot
 
-            # 연속 프레임 카운트: 관심 ID(미션 범위 또는 target) 하나만 추적.
+            # 검출 확정: 관심 ID(미션 범위 또는 target) 하나를 추적.
             # 분류는 기체가 아니라 "국면" 기준이다: MM 확정 전의 현재 미션 담당만 미션 마커를
             # 찾고, 그 외(확정 후의 미션기 포함)는 전부 타겟을 찾는다. 기체 기준으로 가르면
             # 미션기가 탐색에 투입되거나 탐색기가 미션을 승계했을 때 타겟 검출이
             # 미션 필터에 삼켜져 IsTMFound 가 영영 서지 않는다.
+            #
+            # 확정 기준: "연속 N프레임" 이 아니라 "최근 confirm_window_sec 초 안에 confirm_frames
+            # 프레임 이상". AI-deck 스트림은 프레임이 불규칙해 한 장만 놓쳐도 연속 카운트가
+            # 리셋됐는데(뷰어엔 보여도 BT 는 확정 못 함), 슬라이딩 윈도우는 중간 유실에 강하다.
+            # confirm_window_sec 를 0(또는 미설정)으로 두면 예전처럼 "연속" 으로 동작한다(폴백).
             lo, hi = C['mission_marker_ids']
             interest = None
             on_mission = (drone == ROLE['observe'] and not self._mm_found)
@@ -404,36 +429,51 @@ class UpdateBlackboard(ConditionWithROSTopics):
                 interest = cand[0] if cand else None
             elif tid is not None and tid in ids:
                 interest = tid
-            prev_id, cnt = self._streak.get(drone, (None, 0))
+            need = int(C['confirm_frames'])
+            win = float(C.get('confirm_window_sec', 0.0))
+            confirmed = False
             if interest is None:
-                self._streak[drone] = (None, 0)
+                # 이 프레임엔 관심 마커가 없다.
+                #   윈도우 방식(win>0): 리셋하지 않는다 — 순간 유실이 누적을 지우면 안 된다.
+                #                       오래된 기록은 아래에서 시간으로 자연 만료된다.
+                #   연속 방식(win<=0): 끊긴 것이므로 리셋 (연속의 정의).
+                if win <= 0:
+                    self._hits[drone] = (None, [])
             else:
-                cnt = cnt + 1 if prev_id == interest else 1
-                self._streak[drone] = (interest, cnt)
-                if cnt >= int(C['confirm_frames']):
-                    # interest 로 고른 그 마커의 역투영 좌표를 쓴다. 한 프레임에 마커가
-                    # 여러 개 잡혀도 타겟만 정확히 골라진다.
-                    # (예전에는 msg.drone_pose 를 읽었다. 검출 노드가 거기에 마커 좌표를
-                    #  덮어써 보내는 우회책이었는데, 마커가 2개 이상이면 어느 것인지 몰라
-                    #  덮어쓰기를 건너뛰었고, 그러면 "드론이 서 있던 자리" 가 마커 위치로
-                    #  둔갑해 조용히 엉뚱한 곳으로 갔다.)
-                    # world_x/world_y 가 0 이면 역투영 실패이므로 그 프레임은 버리고
-                    # 다음 프레임에 다시 시도한다. z 는 지면 마커라 역투영이 주지 않아
-                    # 드론 고도를 그대로 쓴다 (CatchTarget 이 어차피 호버 고도로 덮는다).
-                    m = next((k for k in msg.markers if k.id == interest), None)
-                    if m is not None:
-                        ev = {'drone': drone, 'id': interest, 't': t,
-                              'pose': {'x': float(m.world_x),
-                                       'y': float(m.world_y),
-                                       'z': msg.drone_pose.pose.position.z}}
-                        if on_mission:
-                            # 미션마커: pose 는 이후 안 쓰이고 id 만 target_id 로 쓴다.
-                            # 마커가 원점(0,0)에 있으면 역투영도 (0,0)이라, world 가드를 두면
-                            # (0,0)=역투영 실패로 오인해 확정을 영영 놓친다. 그래서 가드 없이 확정.
-                            self._mission_event = ev
-                        elif m.world_x != 0.0 or m.world_y != 0.0:
-                            # 타겟마커: P_N 으로 이동해야 하므로 역투영 실패(0,0)는 버리고 다음 프레임 재시도.
-                            self._target_events.append(ev)
+                prev_id, times = self._hits.get(drone, (None, []))
+                if prev_id != interest:
+                    times = []                      # 다른 ID 로 바뀌면 그 ID 의 기록만 새로 센다
+                if win > 0:
+                    times = [x for x in times if t - x <= win]   # 윈도우 밖 오래된 것 제거
+                times.append(t)
+                if win <= 0:
+                    times = times[-need:]           # 폴백(연속): 마지막 need 개만
+                self._hits[drone] = (interest, times)
+                confirmed = len(times) >= need
+            if confirmed:
+                # interest 로 고른 그 마커의 역투영 좌표를 쓴다. 한 프레임에 마커가
+                # 여러 개 잡혀도 타겟만 정확히 골라진다.
+                # (예전에는 msg.drone_pose 를 읽었다. 검출 노드가 거기에 마커 좌표를
+                #  덮어써 보내는 우회책이었는데, 마커가 2개 이상이면 어느 것인지 몰라
+                #  덮어쓰기를 건너뛰었고, 그러면 "드론이 서 있던 자리" 가 마커 위치로
+                #  둔갑해 조용히 엉뚱한 곳으로 갔다.)
+                # world_x/world_y 가 0 이면 역투영 실패이므로 그 프레임은 버리고
+                # 다음 프레임에 다시 시도한다. z 는 지면 마커라 역투영이 주지 않아
+                # 드론 고도를 그대로 쓴다 (CatchTarget 이 어차피 호버 고도로 덮는다).
+                m = next((k for k in msg.markers if k.id == interest), None)
+                if m is not None:
+                    ev = {'drone': drone, 'id': interest, 't': t,
+                          'pose': {'x': float(m.world_x),
+                                   'y': float(m.world_y),
+                                   'z': msg.drone_pose.pose.position.z}}
+                    if on_mission:
+                        # 미션마커: pose 는 이후 안 쓰이고 id 만 target_id 로 쓴다.
+                        # 마커가 원점(0,0)에 있으면 역투영도 (0,0)이라, world 가드를 두면
+                        # (0,0)=역투영 실패로 오인해 확정을 영영 놓친다. 그래서 가드 없이 확정.
+                        self._mission_event = ev
+                    elif m.world_x != 0.0 or m.world_y != 0.0:
+                        # 타겟마커: P_N 으로 이동해야 하므로 역투영 실패(0,0)는 버리고 다음 프레임 재시도.
+                        self._target_events.append(ev)
             if tid is not None and tid in ids:
                 self._seen_now[drone] = t
 
@@ -489,7 +529,9 @@ class UpdateBlackboard(ConditionWithROSTopics):
         if any(r not in bb['pose'] for r in required):
             missing = [r for r in required if r not in bb['pose']]
             bb['missing_pose'] = missing
+            self._publish_mission_state(bb)
             return False
+        bb['missing_pose'] = []
 
         # [기체 상태] 판정만 기록. 대응(퇴역·비상착륙·구역 이어받기)은 Search 가 한다.
         self._update_health(bb, t)
@@ -555,7 +597,86 @@ class UpdateBlackboard(ConditionWithROSTopics):
                     and len([d for d in SEARCHERS if d not in ROLE['retired']]) < len(SEARCHERS):
                 will_search = True
         bb['observe_will_search'] = will_search
+        self._publish_mission_state(bb)
         return True
+
+    # ---- 대시보드용 미션 상태 발행 (행동 결정 없음, 블랙보드 직렬화만) ----
+    def _derive_phase(self, bb):
+        """블랙보드 상태 조합으로 국면을 도출한다. BT 는 phase 변수를 따로 두지 않으므로
+        (mission_marker/target_marker/rescue_done + 이착륙·리모 도착) 으로 계산한다.
+        대시보드 라벨/캐러셀/신호색이 쓰는 값과 동일한 이름을 낸다."""
+        if bb.get('missing_pose'):
+            return 'waiting_poses'
+        airborne_z = float(TOL['airborne_z'])
+
+        def airborne(r):
+            p = bb.get('pose', {}).get(r)
+            return p is not None and p.get('z', 0.0) >= airborne_z
+
+        mm = bb.get('mission_marker', {}).get('found', False)
+        tm = bb.get('target_marker', {}).get('found', False)
+        rescue_done = float(bb.get('rescue_done_t', 0.0) or 0.0) > 0.0
+
+        if rescue_done:
+            return 'return' if any(airborne(d) for d in DRONES) else 'done'
+        if tm:
+            rl = self._rescue_limo
+            arr = bb.get('limo_arrived', {}).get(rl)
+            pn = bb.get('P_N')
+            if arr and pn and _dist2(arr['goal'][0], arr['goal'][1],
+                                     pn['x'], pn['y']) <= float(TOL['limo_at']) + 0.1:
+                return 'rescue'                       # 구조 리모가 P_N 도착
+            c = bb.get('cmd', {}).get(rl)
+            if c and c.get('kind') == 'nav':
+                return 'rescue_dispatch'              # 구조 리모 출동 명령 나감
+            return 'capture'                          # 타겟 발견, 위치 확인 중
+        if mm:
+            searchers = bb.get('searchers', [])
+            return 'search' if any(airborne(d) for d in searchers) else 'handover'
+        return 'observe'                              # 미션 마커 판독 전
+
+    def _publish_mission_state(self, bb):
+        if self._mission_pub is None:
+            return
+        mm = bb.get('mission_marker', {})
+        payload = {
+            't': float(bb.get('now', now())),
+            'phase': self._derive_phase(bb),
+            'led': {r: c for r, c in (bb.get('led') or {}).items() if isinstance(c, str)},
+            'mission_marker_id': int(mm['id']) if mm.get('found') and mm.get('id') is not None else None,
+            'target_id': int(bb['target_id']) if bb.get('target_id') is not None else None,
+            'finder': bb.get('finder'),
+            'target_confirmed': bool(bb.get('target_confirmed', False)),
+            'preflight_required': bool((C.get('preflight') or {}).get('gate', False)),
+            'preflight_ready': True,   # 트리 tick 시점은 사전점검 게이트 통과 이후
+            'rescue_done_t': float(bb.get('rescue_done_t', 0.0) or 0.0),
+            'missing_pose': [str(r) for r in bb.get('missing_pose', [])],
+        }
+        note = bb.get('target_confirm_note')
+        if note:
+            payload['target_confirm_note'] = str(note)
+        pn = bb.get('P_N')
+        if isinstance(pn, dict) and all(
+                isinstance(pn.get(k), (int, float)) and math.isfinite(pn.get(k)) for k in ('x', 'y', 'z')):
+            payload['P_N'] = {'x': float(pn['x']), 'y': float(pn['y']), 'z': float(pn['z'])}
+        cmd = {}
+        for r, c in (bb.get('cmd') or {}).items():
+            if not isinstance(c, dict) or 'kind' not in c:
+                continue
+            goal = c.get('goal')
+            goal = ([float(g) for g in goal]
+                    if isinstance(goal, (list, tuple))
+                    and all(isinstance(g, (int, float)) and math.isfinite(g) for g in goal)
+                    else [])
+            cmd[r] = {'kind': str(c['kind']), 'goal': goal, 't': float(c.get('t', bb.get('now', now())))}
+        if cmd:
+            payload['cmd'] = cmd
+        try:
+            msg = String()
+            msg.data = json.dumps(payload, allow_nan=False)
+            self._mission_pub.publish(msg)
+        except (ValueError, TypeError):
+            pass   # 발행 실패는 로봇 행동에 영향 없음 — 조용히 다음 tick 재시도
 
     # ---- 기체 상태 판정 ----
     def _update_health(self, bb, t):

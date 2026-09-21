@@ -25,6 +25,7 @@ coshow:
   mission_marker_ids: [11, 14]      # 참관자 마커 ID 범위 (포함)
   marker_id_offset: 10              # target_id = mission_id - 10
   confirm_frames: 3                 # 연속 검출 프레임 수 (확정 조건)
+  confirm_window_sec: 3.0          # 이 시간(초) 안에 confirm_frames 프레임 이상이면 확정 (0=연속 방식)
 
   # Phase 2/3: 탐색·구조
   seen_now_window: 0.5              # "지금 target을 보고 있다" 판정 창(초)
@@ -102,3 +103,5 @@ coshow:
     return: 1.0                     # 기지 복귀 이동 (탐색 고도와 분리)
 
   led_topic_suffix: led             # stub: /{robot}/led (std_msgs/String)
+  # 관람자 대시보드용 미션 상태 발행 토픽 (std_msgs/String JSON). null/'' 로 두면 발행 안 함.
+  mission_state_topic: /coshow/mission_state
