@@ -76,7 +76,7 @@ coshow:
     required_movement_radius: 0.3   # STUCK: takeoff/go_to 가 살아 있는데 이 거리(m)를
     movement_time_allowance: 8.0    #        이 시간(초) 안에 못 벗어나면. 목표 도달 후 호버는 정상
     goal_reached_tol: 0.3           # "목표 도달" 판정 반경(m)
-    frame_max_age: 3.0              # BLIND: 카메라 프레임이 이 시간 넘게 안 오면. 0 이면 끔
+    frame_max_age: 10.0             # BLIND: 카메라 프레임이 이 시간 넘게 안 오면. 0 이면 끔
     t_recover: 3.0                  # 이상이 이 시간 동안 없으면 OK 복귀 (이미 퇴역한 드론은 무관)
     mission_takeover: true          # 미션기 고장 시 탐색기가 역할 승계 (Observer 노드)
     lost_clear_policy: timeout      # 시뮬 전용 완화. 실기는 strict (coshow_rehearsal.yaml 참조)

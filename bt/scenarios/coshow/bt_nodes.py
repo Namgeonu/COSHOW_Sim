@@ -462,22 +462,6 @@ class UpdateBlackboard(ConditionWithROSTopics):
         bb['all_drones'] = list(DRONES)
         bb['retired'] = set(ROLE['retired'])    # _drone_home 등이 모든 국면에서 보도록 여기서 기록
 
-        # [탐색 전환 플래그] 미션을 마친 미션 담당이 착륙 대신 탐색으로 넘어갈지.
-        # 미션 마커 확정 ~ 타겟 발견 전(탐색 국면)에만 참. 이때 복귀 관문은 이 드론을
-        # 착륙시키지 않고(_return_satisfied), Search 가 공중 그대로 탐색 진입점으로 보낸다.
-        # - observe 가 탐색기(승계된 경우): 자기 구역 탐색으로 복귀
-        # - observe 가 순수 미션기 + 생존 탐색기 부족: 빈 구역을 이어받아 투입
-        # 타겟이 발견되면(구조 국면) 다시 False → 최종 전원 복귀에서 정상 착륙한다.
-        obs = ROLE['observe']
-        searching = bb['mission_marker'].get('found', False) and not bb['target_marker'].get('found', False)
-        will_search = False
-        if searching and obs not in ROLE['retired']:
-            if obs in SEARCHERS:
-                will_search = True
-            elif bool(C.get('search', {}).get('observe_join', True)) \
-                    and len([d for d in SEARCHERS if d not in ROLE['retired']]) < len(SEARCHERS):
-                will_search = True
-        bb['observe_will_search'] = will_search
         # 관측점(P0)을 블랙보드에 노출. phase1_observe.xml 이 좌표를 하드코딩하지 않고
         # target_key="observe_point" 로 읽어, 통합(-2,0)·리허설(0,0)이 각자 config 값으로 돈다.
         bb['observe_point'] = dict(OBS)
@@ -553,6 +537,24 @@ class UpdateBlackboard(ConditionWithROSTopics):
             bb['P_N'] = pn
             dx = float(C.get('limo_approach_dx', 0.0))
             bb['P_N_limo'] = dict(pn, x=pn['x'] + dx)
+
+        # [탐색 전환 플래그] 미션을 마친 미션 담당이 착륙 대신 탐색으로 넘어갈지.
+        # 반드시 이번 tick 의 mission/target 확정 결과를 반영한 뒤 계산한다 — 앞쪽에서 계산하면
+        # 미션마커가 확정되는 tick 에 한 박자 늦어, 복귀 관문이 미션기를 잠깐 기지로 보내는
+        # 잘못된 명령이 한 번 나간다(실기에서 엉뚱한 방향으로 출발). 여기서 계산해 그 틈을 없앤다.
+        # 미션 마커 확정 ~ 타겟 발견 전(탐색 국면)에만 참. 이때 복귀 관문은 이 드론을
+        # 착륙시키지 않고(_return_satisfied), Search 가 공중 그대로 탐색 진입점으로 보낸다.
+        # 타겟이 발견되면(구조 국면) 다시 False → 최종 전원 복귀에서 정상 착륙한다.
+        obs = ROLE['observe']
+        searching = bb['mission_marker'].get('found', False) and not bb['target_marker'].get('found', False)
+        will_search = False
+        if searching and obs not in ROLE['retired']:
+            if obs in SEARCHERS:
+                will_search = True
+            elif bool(C.get('search', {}).get('observe_join', True)) \
+                    and len([d for d in SEARCHERS if d not in ROLE['retired']]) < len(SEARCHERS):
+                will_search = True
+        bb['observe_will_search'] = will_search
         return True
 
     # ---- 기체 상태 판정 ----
@@ -1608,11 +1610,14 @@ class Search(_MultiDroneAction):
         if not alive:
             return {}
         borrowed = {d: [] for d in alive}
-        # 기본 부하 1 = "임무 한 몫". 탐색기는 자기 구역, 투입된 미션기는 첫 빌린 구역이 그 몫이다.
-        # 이래야 미션기가 첫 구역은 최근접으로 받되(투입 목적), 두 번째 구역부터는 생존 탐색기와
-        # 공평하게 부하를 비교한다. 예) 231·232 퇴역, 233 생존, 230 투입:
-        # 230 이 231 구역을 받으면(부하 2) 232 구역은 부하 1 인 233 에게 간다 → 2:1 독식 방지.
-        counts = {d: 1 for d in alive}
+        # 투입 우선 순위: 대기 중인 미션기(자기 구역이 없음)를 빈 구역에 먼저 넣는다.
+        # 기본 부하 = 탐색기는 1(자기 구역), 투입된 미션기는 0 → 빈 구역 배분에서 항상 먼저 뽑힌다.
+        # 이래야 "생존 탐색기가 멀리 있는 빈 구역까지 가로질러 가는" 상황을 막는다.
+        # 예) 231(상)·232(중) 퇴역, 233(하) 생존, 230 투입 (SEARCHERS 순서 = 상→중→하):
+        #   231(상): 230(부하0) 이 먼저 받음 → 230 이 맨 위 구역 담당 (233 이 위로 안 올라옴)
+        #   232(중): 230(1) vs 233(1) → 최근접(230 이 기지가 가운데라 더 가까움) → 230 이 받음
+        #   결과: 230=[231,232] 상·중 담당, 233 은 자기 하 구역 유지 → 233 이 가로지르지 않는다.
+        counts = {d: (1 if d in SEARCHERS else 0) for d in alive}
         for dead in SEARCHERS:
             if dead in alive or dead not in self.cleared:
                 continue

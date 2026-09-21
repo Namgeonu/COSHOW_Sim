@@ -64,17 +64,17 @@ coshow:
       default: cf231
       base: [-1.5, 1.5]
       altitudes: {takeoff: 0.6, search: 0.6, capture: 0.6, return: 0.6}
-      zone: {x: [-1.5, 1.5], y: [ 1.3,  1.7]}     # 레인중앙 y = +1.5
+      zone: {x: [0.0, 1.5], y: [ 1.3,  1.7]}      # x[0,1.5] 로 단축(미션기 진입 충돌 회피). 레인중앙 y = +1.5
     search_b:
       default: cf232
       base: [-1.5, 0.0]
       altitudes: {takeoff: 0.8, search: 0.8, capture: 0.8, return: 0.8}
-      zone: {x: [-1.5, 1.5], y: [-0.2,  0.2]}     # 레인중앙 y =  0.0
+      zone: {x: [0.0, 1.5], y: [-0.2,  0.2]}      # x[0,1.5] 로 단축. 레인중앙 y =  0.0
     search_c:
       default: cf233
       base: [-1.5, -1.5]
       altitudes: {takeoff: 1.2, search: 1.2, capture: 1.2, return: 1.2}
-      zone: {x: [-1.5, 1.5], y: [-1.7, -1.3]}     # 레인중앙 y = -1.5
+      zone: {x: [0.0, 1.5], y: [-1.7, -1.3]}      # x[0,1.5] 로 단축. 레인중앙 y = -1.5
 
   # 실기체가 없다. tools/fake_limo.py 가 이 토픽과 navigate_to_pose 액션을 제공한다.
   # base 는 default_bt.xml 의 LimoNavigateTo 복귀 좌표와 일치해야 IsMissionComplete 가 성립한다.
@@ -112,7 +112,7 @@ coshow:
     required_movement_radius: 0.3
     movement_time_allowance: 10.0
     goal_reached_tol: 0.3
-    frame_max_age: 3.0              # AI-deck 스트림. 0 이면 BLIND 판정 끔
+    frame_max_age: 10.0             # AI-deck 스트림. 0 이면 BLIND 판정 끔
     t_recover: 3.0
     mission_takeover: true          # 미션기 고장 시 탐색기가 역할 승계 (Observer 노드)
     lost_clear_policy: timeout      # 시뮬 전용 완화. ⚠️ 실기(coshow_rehearsal.yaml)는 strict
