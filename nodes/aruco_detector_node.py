@@ -22,9 +22,20 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import CompressedImage
+from std_msgs.msg import Float32, Bool
 from coshow_interfaces.msg import MarkerDetection, MarkerDetections
 
-# ── 카메라 역투영: 마커 픽셀 → 지면(z=0) 월드 좌표 (논문 Algorithm 1, 하방 카메라) ──
+# ── 카메라 역투영: 마커 픽셀 → 월드 좌표 (하방 카메라) ──
+#
+# 마커의 "화면상 크기"로 거리를 재는 방식이라 지형 높이를 몰라도 된다.
+# 한 변 _MARKER_SIZE_M 인 마커가 깊이 Z 에 있으면 화면에 f*size/Z 픽셀로 보이므로,
+# 거꾸로 Z = f*size/size_px 로 깊이가 나온다. 그 깊이의 광선 위 점이 곧 마커다.
+#
+# 예전에는 광선을 z=0 평면과 교차시켰다. 마커가 바닥에 있을 때만 맞는 가정이라,
+# 건물 지붕(0.37~0.93 m)에 올리자 광선이 지붕을 지나쳐 바닥까지 내려가
+# 최대 0.9 m 까지 빗나갔다. 크기 기반은 그 가정 자체가 없다.
+_MARKER_SIZE_M = 0.2                  # 월드의 마커 한 변 (Box size 0.2 x 0.2)
 _IMG_W, _IMG_H = 320.0, 220.0
 _FOV_H = np.radians(87.0)
 _FOV_V = 2 * np.arctan((_IMG_H / _IMG_W) * np.tan(_FOV_H / 2))
@@ -41,23 +52,27 @@ def _quat_to_R(qw, qx, qy, qz):
         [2*(qx*qz-qy*qw),   2*(qy*qz+qx*qw),   1-2*(qx*qx+qy*qy)]])
 
 
-def backproject_marker(cx_px, cy_px, pose):
-    """마커 픽셀과 드론 pose(위치+자세)로 마커의 지면 월드 좌표 (x,y) 계산.
-    드론 위치·자세와 무관하게 마커 실제 위치 복원. 실패 시 None."""
+def backproject_marker(cx_px, cy_px, size_px, pose):
+    """마커 픽셀·크기와 드론 pose 로 마커의 월드 좌표 (x, y, z) 계산.
+
+    size_px 는 네 변 길이의 평균. 지형 높이를 가정하지 않으므로 마커가
+    바닥에 있든 건물 지붕에 있든 같은 식으로 동작한다. 실패 시 None.
+
+    한계: 마커가 카메라를 정면으로 마주본다고 본다. 크게 기울면 화면상
+    크기가 줄어 실제보다 멀게 나온다. 하방 카메라 + 수평 지붕이라
+    기울기는 드론 자세만큼(보통 10도 안팎)이고 그때 오차는 2% 미만이다.
+    """
+    if size_px <= 1e-6:
+        return None
     p = pose.pose.position
     o = pose.pose.orientation
     nx = (cx_px - _CX) / _FX
     ny = (cy_px - _CY) / _FY
-    pc = np.array([-ny, nx, 1.0])
-    pc /= np.linalg.norm(pc)
+    depth = _FX * _MARKER_SIZE_M / size_px        # 광축 방향 거리
+    pc = np.array([-ny, nx, 1.0]) * depth         # 카메라 좌표계에서의 마커 위치
     R = _quat_to_R(o.w, o.x, o.y, o.z) @ _CAM_STATIC
-    uE = R @ pc
-    if uE[2] >= -1e-9:
-        return None
-    k = -p.z / uE[2]
-    if k < 0:
-        return None
-    return float(p.x + k * uE[0]), float(p.y + k * uE[1])
+    v = R @ pc                                    # 월드 기준 상대 변위
+    return float(p.x + v[0]), float(p.y + v[1]), float(p.z + v[2])
 
 
 
@@ -121,6 +136,21 @@ class ArucoDetectorNode(Node):
         # --- 검출 결과 발행 ---
         self.pub = self.create_publisher(
             MarkerDetections, f'/{self.drone}/marker_detections', 10)
+
+        # --- 대시보드용 주석 영상 발행 (관람 대시보드가 /aideck/{cf}/... 를 구독) ---
+        # 실기 aideck_aruco_node 와 같은 토픽 이름을 써서 대시보드는 시뮬/실기 구분 없이 동작한다.
+        self.declare_parameter('publish_image', True)   # 대시보드 송출 on/off
+        self.declare_parameter('jpeg_quality', 70)
+        self.publish_image = bool(self.get_parameter('publish_image').value)
+        self.jpeg_quality = int(self.get_parameter('jpeg_quality').value)
+        if self.publish_image:
+            self.img_pub = self.create_publisher(
+                CompressedImage, f'/aideck/{self.drone}/image_annotated/compressed', 10)
+            self.fps_pub = self.create_publisher(Float32, f'/aideck/{self.drone}/fps', 10)
+            self.ok_pub = self.create_publisher(Bool, f'/aideck/{self.drone}/stream_ok', 10)
+            self._fps_ema = 0.0
+            self._last_frame_t = None
+            self.create_timer(1.0, self._publish_stream_health)   # fps·stream_ok 1 Hz
 
         # --- 메인 루프 타이머 (10ms마다 소켓 폴링) ---
         self.create_timer(0.01, self._poll)
@@ -217,11 +247,14 @@ class ArucoDetectorNode(Node):
                 det.cx = float(center[0])
                 det.cy = float(center[1])
                 det.size_px = float(np.mean(edges))
-                # 역투영: 마커 실제 지면 좌표 (드론 pose 있을 때만)
+                # 역투영: 마커 실제 좌표 (드론 pose 있을 때만).
+                # z 는 메시지에 담을 자리가 없어 버린다. BT 는 x·y 만 쓰고
+                # 포착 고도는 config 의 altitudes.capture 로 따로 정한다.
                 if self.latest_pose is not None:
-                    proj = backproject_marker(det.cx, det.cy, self.latest_pose)
+                    proj = backproject_marker(det.cx, det.cy, det.size_px,
+                                              self.latest_pose)
                     if proj is not None:
-                        det.world_x, det.world_y = proj
+                        det.world_x, det.world_y = proj[0], proj[1]
                 msg.markers.append(det)
 
         # drone_pose 는 이름 그대로 "검출 시점의 드론 위치" 로 둔다.
@@ -234,40 +267,54 @@ class ArucoDetectorNode(Node):
         # "드론 위치" 로 되돌아가 BT 가 그것을 마커 위치로 믿었다.
         self.pub.publish(msg)
 
+        # --- 주석 영상 만들기 (대시보드 송출 또는 로컬 창 표시 시) ---
+        if self.publish_image or self.display:
+            disp = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            if ids is not None:
+                cv2.aruco.drawDetectedMarkers(disp, corners)
+            hh, ww = disp.shape[:2]
+            cv2.drawMarker(disp, (ww // 2, hh // 2), (0, 255, 255),
+                           cv2.MARKER_CROSS, 18, 1)
+            for m in msg.markers:
+                px, py = int(m.cx), int(m.cy)
+                cv2.circle(disp, (px, py), 4, (0, 0, 255), -1)
+                cv2.putText(disp, f"ID:{m.id} ({m.world_x:.2f},{m.world_y:.2f})",
+                            (px + 6, py - 6), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.45, (0, 0, 255), 1)
+            if self.publish_image:
+                ok, buf = cv2.imencode('.jpg', disp,
+                                       [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
+                if ok:
+                    out = CompressedImage()
+                    out.header.stamp = msg.header.stamp
+                    out.header.frame_id = self.drone
+                    out.format = 'jpeg'
+                    out.data = buf.tobytes()
+                    self.img_pub.publish(out)
+                    now = time.time()
+                    if self._last_frame_t is not None:
+                        dt = now - self._last_frame_t
+                        if dt > 0:
+                            inst = 1.0 / dt
+                            self._fps_ema = inst if self._fps_ema == 0 else 0.8 * self._fps_ema + 0.2 * inst
+                    self._last_frame_t = now
+            if self.display:
+                cv2.imshow(f'aruco {self.drone}', cv2.resize(disp, None, fx=0.7, fy=0.7,
+                           interpolation=cv2.INTER_AREA))
+                cv2.waitKey(1)
+
         if msg.markers:
             found = ', '.join(f'id={m.id}({m.size_px:.0f}px)'
                               for m in msg.markers)
             self.get_logger().info(
                 f'[{self.drone}] frame={self.frame_count} {found}')
 
-        # --- 옵션: 화면 표시 ---
-        if self.display:
-            disp = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-            if ids is not None:
-                # ids 를 넘기지 않으면 외곽선만 그린다 (기본 파란 ID 글씨 억제).
-                # ID 는 아래에서 world 좌표와 묶어 한 번만 표시.
-                cv2.aruco.drawDetectedMarkers(disp, corners)
-            # 화면 중심 = 드론 바로 아래 지점 (하방 카메라)
-            hh, ww = disp.shape[:2]
-            cv2.drawMarker(disp, (ww // 2, hh // 2), (0, 255, 255),
-                           cv2.MARKER_CROSS, 18, 1)
-            if self.latest_pose is not None:
-                dx = self.latest_pose.pose.position.x
-                dy = self.latest_pose.pose.position.y
-                cv2.putText(disp, f"drone ({dx:.2f},{dy:.2f})",
-                            (ww // 2 + 10, hh // 2 - 6),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-            # 각 마커: 계산된 world 좌표 표시
-            for m in msg.markers:
-                px, py = int(m.cx), int(m.cy)
-                cv2.circle(disp, (px, py), 4, (0, 0, 255), -1)
-                cv2.putText(disp, f"ID: {m.id}({m.world_x:.2f}, {m.world_y:.2f})",
-                            (px + 6, py - 6), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.45, (0, 0, 255), 1)
-            disp = cv2.resize(disp, None, fx=0.7, fy=0.7,
-                              interpolation=cv2.INTER_AREA)
-            cv2.imshow(f'aruco {self.drone}', disp)
-            cv2.waitKey(1)
+
+    def _publish_stream_health(self):
+        # fps 와 stream_ok(최근 프레임이 흐르는가) 를 대시보드에 보고.
+        alive = self._last_frame_t is not None and (time.time() - self._last_frame_t) < 2.0
+        self.fps_pub.publish(Float32(data=float(self._fps_ema if alive else 0.0)))
+        self.ok_pub.publish(Bool(data=bool(alive)))
 
     def destroy_node(self):
         try:
