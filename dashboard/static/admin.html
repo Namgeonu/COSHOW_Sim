@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>CO-SHOW 2026 · 운영</title><link rel="icon" href="data:,">
+<link rel="preload" href="/static/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/css/glass.css"><link rel="stylesheet" href="/static/css/admin.css"></head>
+<body class="admin-body">
+<div id="connection-banner" role="alert">서버 연결 없음 — 비상 시 BT 터미널에서 Ctrl+C <span id="last-received">수신 이력 없음</span></div>
+<main class="admin">
+  <header class="control-bar">
+    <div><h1>CO-SHOW 2026 <span class="label">운영</span></h1><p><strong id="run-state">연결 대기</strong> <time id="run-elapsed">—:—</time> <span id="mock-state" class="label"></span> <span id="external-bt" class="label" hidden>외부 BT 관찰 중</span></p></div>
+    <div class="control-actions"><button data-cmd="preflight" disabled>점검 시작</button><div><button data-cmd="start" disabled>데모 시작 · 길게 누르기</button><p id="start-note" class="label"></p></div><button data-cmd="reset" disabled>리셋</button><button data-cmd="estop" class="emergency" disabled>비상 착륙</button></div>
+    <p id="command-response" role="status">서버 연결을 기다립니다</p>
+  </header>
+  <section id="stack-panel" class="admin-panel" hidden></section>
+  <section class="admin-panel checks"><div class="section-title"><h2>시작 전 점검</h2><span id="check-summary" class="label"></span></div><div id="failures"></div><section id="spare-warnings" hidden><h3>여유 기체 주의</h3><div id="spare-warning-rows"></div></section><div id="checklist"></div></section>
+  <section class="admin-panel robots"><div class="section-title"><h2 id="robots-title">역할 로봇</h2><span id="robot-note" class="label">실시간 상태</span></div><div class="table-scroll"><table><thead id="robot-head"><tr><th>기체 · 역할</th><th>IP · ping</th><th>링크 / 위치 age</th><th>배터리</th><th>카메라</th><th>무장</th><th>고도 z</th></tr></thead><tbody id="robot-rows"></tbody></table></div><div id="roster-controls" hidden></div></section>
+  <section class="admin-panel progress"><h2>비행 준비</h2><ol id="preflight-stages"></ol><p id="last-error" class="label"></p></section>
+  <section class="admin-panel events"><div class="section-title"><h2>최근 이벤트</h2><span class="label">최근 30건</span></div><ol id="events"></ol></section>
+</main><script type="module" src="/static/js/admin.js"></script></body></html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>CO-SHOW 2026 · 수색·구조 협업</title>
+  <link rel="icon" href="data:,">
+  <link rel="preload" href="/static/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/css/glass.css">
+</head>
+<body>
+  <main class="visitor" data-mode="waiting" data-signal="off">
+    <header class="head" data-region="head">
+      <h1>CO-SHOW 2026 <span class="sep">·</span> 드론×LIMO 수색·구조 협업</h1>
+      <div class="run">
+        <span class="phase-pill" id="phase-label">준비 중</span>
+        <div class="elapsed"><span class="label">경과</span><time id="elapsed">—:—</time></div>
+      </div>
+    </header>
+
+    <section class="map" data-region="map" aria-label="수색 현장 3D 맵">
+      <div class="map-head"><h2>수색 현장</h2><span class="label" id="field-size"></span></div>
+      <div class="field-stage"><canvas id="field-canvas" aria-label="드론과 LIMO 위치 3D 트윈"></canvas></div>
+      <div class="popup glass glass-strong" id="popup" data-sig="blue" role="status" aria-live="polite">
+        <span class="dot"></span><p id="popup-text"></p><span class="timer"><i></i></span>
+      </div>
+      <div class="legend">
+        <span><i style="color:#4DA3FF"></i>탐색 중</span>
+        <span><i style="color:#FF5A5F"></i>구출자 발견</span>
+        <span><i style="color:#3DDC97"></i>구출 진행</span>
+        <span><i style="color:#F4F6FB"></i>복귀</span>
+      </div>
+      <span id="connection-note" class="connection-note">연결 대기</span>
+    </section>
+
+    <div class="right" data-region="right">
+      <section class="cams" id="cams" aria-label="드론 영상 검출 화면"></section>
+      <aside class="narr glass" aria-label="현재 미션 내용">
+        <div class="eyebrow"><span>현재 미션 내용</span><b id="narr-stage">—</b></div>
+        <div class="reel"><div class="track" id="track" data-sig="off"></div></div>
+      </aside>
+    </div>
+
+    <section class="drones" id="drones" data-region="drones" aria-label="드론별 현재 상태"></section>
+  </main>
+  <script type="module" src="/static/js/visitor.js"></script>
+</body>
+</html>

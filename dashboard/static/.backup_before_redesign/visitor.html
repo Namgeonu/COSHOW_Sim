@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>CO-SHOW 2026 · 수색·구조 협업</title>
+  <link rel="icon" href="data:,">
+  <link rel="preload" href="/static/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/css/glass.css">
+</head>
+<body>
+  <main class="visitor" data-mode="waiting" data-signal="off">
+    <header class="head" data-region="head">
+      <h1>CO-SHOW 2026 <span class="title-separator">·</span> 드론×LIMO 수색·구조 협업</h1>
+      <div class="run-summary">
+        <span class="phase-pill" id="phase-label">준비 중</span>
+        <div class="elapsed"><span class="label">경과</span><time id="elapsed">—:—</time></div>
+      </div>
+    </header>
+    <section class="twin" data-region="twin" aria-labelledby="field-title">
+      <div class="field-heading"><h2 id="field-title">수색 현장</h2><span class="label" id="field-size"></span></div>
+      <div class="field-stage">
+        <canvas id="field-canvas" aria-label="수색 현장 디지털 트윈 영역"></canvas>
+      </div>
+      <div class="narrative glass" data-region="narrative">
+        <p id="narrative-previous" aria-hidden="true"></p>
+        <p id="narrative">다음 데모를 준비하고 있습니다</p>
+        <span id="return-progress" hidden>복귀</span>
+      </div>
+      <div class="idle-intro glass" data-region="idle-intro" hidden>
+        <p class="idle-lead"></p><p class="idle-detail"></p><p class="idle-detail"></p>
+      </div>
+      <span id="connection-note" class="connection-note label">연결 대기</span>
+    </section>
+    <aside class="side" data-region="side" aria-label="카메라와 미션 정보">
+      <section class="camera-zone" data-region="cameras" aria-label="역할 드론 카메라">
+        <div id="cameras" class="camera-grid"></div>
+      </section>
+      <section class="mission glass glass-strong" data-region="mission" aria-labelledby="mission-heading">
+        <h2 id="mission-heading">미션 정보</h2>
+        <dl>
+          <div><dt class="label" id="marker-label">임무</dt><dd id="marker-value">—</dd></div>
+          <div><dt class="label">발견 위치 <span>(m)</span></dt><dd id="target-value">—</dd></div>
+          <div><dt class="label">구조 상태</dt><dd id="rescue-value">미션 대기</dd></div>
+        </dl>
+      </section>
+    </aside>
+    <section id="fleet" class="fleet" data-region="fleet" aria-label="역할별 로봇 상태"></section>
+  </main>
+  <script type="module" src="/static/js/visitor.js"></script>
+</body>
+</html>

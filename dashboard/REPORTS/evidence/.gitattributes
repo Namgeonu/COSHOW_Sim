@@ -1,0 +1,2 @@
+# Preserve raw command output, including pytest's trailing whitespace.
+*.log -whitespace

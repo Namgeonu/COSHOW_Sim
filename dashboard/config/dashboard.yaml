@@ -1,0 +1,87 @@
+# All external names and types live here. Null fleet values need field inventory.
+http: {host: 127.0.0.1, port: 8080}
+robots:
+  drones: [cf230, cf231, cf232, cf233]
+  limos: [limo_a, limo_b]
+network:
+  aideck_ips: {cf230: 192.168.1.211, cf231: 192.168.1.125, cf232: 192.168.1.13, cf233: 192.168.1.14}
+  limo_ips: {limo_a: null, limo_b: null}
+  ping_period_s: 2.0
+topics:
+  pose_template: /{cf}/pose
+  status_template: /{cf}/status
+  odom_template: /{limo}/odom
+  limo_status_template: /{limo}/limo_status
+  camera_template: /aideck/{cf}/image_annotated/compressed
+  camera_fps_template: /aideck/{cf}/fps
+  camera_ok_template: /aideck/{cf}/stream_ok
+  detections_template: /{cf}/marker_detections
+  mission_state: /coshow/mission_state
+  preflight_ready: /preflight/ready
+  preflight_status: /preflight/status
+services: {land_template: '/{cf}/land', arm_template: '/{cf}/arm'}
+actions: {nav_template: '/{limo}/navigate_to_pose'}
+nodes: {server: crazyflie_server, aideck: /aideck/aideck_aruco_node, preflight: preflight, bt: space_bt_bridge}
+# v2.3 type extension: keys correspond exactly to topics/services/actions above.
+types:
+  topics:
+    pose_template: geometry_msgs/msg/PoseStamped
+    status_template: crazyflie_interfaces/msg/Status
+    odom_template: nav_msgs/msg/Odometry
+    limo_status_template: null  # Unverified Jetson interface; information unavailable.
+    camera_template: sensor_msgs/msg/CompressedImage
+    camera_fps_template: std_msgs/msg/Float32
+    camera_ok_template: std_msgs/msg/Bool
+    detections_template: coshow_interfaces/msg/MarkerDetections
+    mission_state: std_msgs/msg/String
+    preflight_ready: std_msgs/msg/Bool
+    preflight_status: std_msgs/msg/String
+  services:
+    land_template: crazyflie_interfaces/srv/Land
+    arm_template: crazyflie_interfaces/srv/Arm
+  actions:
+    nav_template: nav2_msgs/action/NavigateToPose
+freshness_s: {pose: 0.8, status: 1.0, odom: 1.0, camera: 2.0, detection_hold: 0.5}
+external_node_grace_s: 20.0
+battery_v: {warn: 3.75, block: 3.60}
+# limo_battery_v: {warn: null, block: null}  # Optional; unverified thresholds do not block.
+camera_min_fps: 5.0
+frame_forward_max_fps: 15
+kiosk: {visitor_offset_px: 1920}
+display:
+  names: {cf230: 판독 드론, cf231: 탐색 드론 B, cf232: 탐색 드론 C, cf233: 탐색 드론 D, limo_a: 운반 차량, limo_b: 구조 차량}
+  idle_lines:
+    - 드론 4대와 구조 차량 2대가 함께 조난자를 찾는 수색·구조 데모입니다
+    - 판독 드론이 미션 마커를 읽으면 탐색 드론 3대가 구역을 나눠 조난자 마커를 찾습니다
+    - 발견한 위치로 구조 차량이 이동하면 임무가 끝납니다
+fleet:
+  drones:
+    - {id: CF01, uri: 'radio://0/80/2M/E7E7E7E7E1', aideck_ip: 192.168.1.211}
+    - {id: CF02, uri: 'radio://0/80/2M/E7E7E7E7E2', aideck_ip: 192.168.1.125}
+    - {id: CF03, uri: 'radio://0/80/2M/E7E7E7E7E3', aideck_ip: 192.168.1.13}
+    - {id: CF04, uri: 'radio://0/80/2M/E7E7E7E7E4', aideck_ip: 192.168.1.14}
+    - {id: CF05, uri: null, aideck_ip: null}
+    - {id: CF06, uri: null, aideck_ip: null}
+    - {id: CF07, uri: null, aideck_ip: null}
+    - {id: CF08, uri: null, aideck_ip: null}
+    - {id: CF09, uri: null, aideck_ip: null}
+    - {id: CF10, uri: null, aideck_ip: null}
+  limos:
+    - {id: LIMO1, ip: null, namespace: limo_a}
+    - {id: LIMO2, ip: null, namespace: limo_b}
+    - {id: LIMO3, ip: null, namespace: limo_c}
+    - {id: LIMO4, ip: null, namespace: limo_d}
+  max_per_radio: 5
+  robot_type: cf21  # Fallback only; each role preserves its template type.
+roster_file: run/roster.yaml
+crazyflies_template: ../ros2_ws/src/crazyswarm2/crazyflie/config/crazyflies.yaml
+aideck_template: ../ros2_ws/src/aideck_aruco_ros/config/drones.yaml
+spare_prefix: spare_
+commands:
+  env: {DISPLAY: ':0'}
+  crazyflie_server: 'ros2 launch crazyflie launch.py backend:=cflib mocap:=False rviz:=False teleop:=False crazyflies_yaml_file:={crazyflies_yaml}'
+  aideck: 'ros2 launch aideck_aruco_ros aideck_aruco.launch.py params_file:={drones_yaml}'
+  preflight: 'python3 tools/preflight_node.py --ros-args -p drones:={roles} -p expected_x:={expected_x} -p expected_y:={expected_y}'
+  bt: 'python3 main.py --config scenarios/coshow/configs/coshow_rehearsal.yaml'
+  bt_cwd: ../bt
+land: {height: 0.0}
