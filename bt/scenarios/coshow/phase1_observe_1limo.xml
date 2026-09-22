@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+  <!-- [1대용] Phase 1: 리모 1대(limo_b)가 운반·구조를 겸임하는 버전.
+       limo_b → 관측점 P0, 드론 A 이륙 → P0 상공 → 마커 검출 대기.
+       2대용 phase1_observe.xml 의 limo_a 를 limo_b 로 바꾼 것 외에는 동일.
+       좌표는 하드코딩하지 않고 config 의 observe_point 를 target_key 로 읽는다. -->
+  <BehaviorTree ID="phase1_observe_1limo">
+    <ReactiveSequence>
+      <ReactiveFallback>
+        <IsLimoAt robot="limo_b" target_key="observe_point"/>
+        <LimoNavigateTo robot="limo_b" target_key="observe_point" yaw="1.57"/>
+      </ReactiveFallback>
+      <ReactiveFallback>
+        <IsDroneAirborne robot_key="observe"/>
+        <DroneTakeoff robot_key="observe"/>
+      </ReactiveFallback>
+      <ReactiveFallback>
+        <IsDroneAt robot_key="observe" target_key="observe_point" alt="observe"/>
+        <DroneGoTo robot_key="observe" target_key="observe_point" alt="observe"/>
+      </ReactiveFallback>
+      <Idle/>
+    </ReactiveSequence>
+  </BehaviorTree>
+</root>

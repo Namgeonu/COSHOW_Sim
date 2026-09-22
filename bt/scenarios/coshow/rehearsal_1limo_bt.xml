@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+  <!--
+    COSHOW 리허설 BT — [1대용] 리모 1대(limo_b)가 운반·구조를 모두 겸임하는 버전.
+
+    2대용 rehearsal_bt.xml 과의 차이 (여기 외 로직은 동일):
+      - 모든 리모 명령을 limo_b 하나로 통합 (운반=관측점 전달, 중간 복귀, 구조 출동, 최종 복귀).
+        · phase1: SubTree phase1_observe_1limo (limo_b 가 관측점으로).
+        · 중간 복귀: limo_b → 자기 base (1.5, -1.5).
+        · 구조 출동: limo_b → P_N_limo (2대용과 동일).
+        · 최종 복귀: limo_b → base (1.5, -1.5).
+      - 최종 복귀 Parallel 에서 2대용의 limo_a·limo_b 두 브랜치를 limo_b 한 브랜치로 병합
+        (success_count 3 → 2). 같은 리모에 동시에 두 목표가 나가 서로 선점하는 문제를 없앤다.
+
+    config: coshow_rehearsal_1limo.yaml (limos 에 limo_b 하나만). BT·Python 무수정, 파일만 분리.
+    2대로 돌리려면 coshow_rehearsal.yaml (rehearsal_bt.xml) 을 쓰면 된다.
+
+    나머지(cf230 착륙 후 탐색 시작, 고도 분리 등)는 rehearsal_bt.xml 과 동일하다.
+  -->
+  <BehaviorTree ID="coshow">
+    <ReactiveSequence>
+      <UpdateBlackboard/>
+      <PreflightReady/>
+      <Observer/>
+      <ReactiveFallback>
+        <IsMissionComplete/>
+        <ReactiveSequence>
+
+          <ReactiveFallback>
+            <IsRescue robot="limo_b" target_key="P_N_limo"/>
+            <ReactiveSequence>
+
+              <ReactiveFallback>
+                <IsTMFound/>
+                <ReactiveSequence>
+
+                  <ReactiveFallback>
+                    <IsMMFound/>
+                    <SubTree ID="phase1_observe_1limo"/>
+                  </ReactiveFallback>
+
+                  <!-- 타겟 마커를 얻기 위한 행동: cf230 착륙 → (limo_b 복귀 ∥ 탐색) -->
+                  <SetLed robot="all" color="blue"/>
+                  <ReactiveSequence>
+                    <ReactiveFallback>
+                      <AreDronesReturn robots_key="observe" latch="true"/>
+                      <ReturnDrones robots_key="observe"/>
+                    </ReactiveFallback>
+                    <Parallel success_count="2">
+                      <ReactiveFallback>
+                        <IsLimoAt robot="limo_b" x="1.5" y="-1.5"/>
+                        <LimoNavigateTo robot="limo_b" x="1.5" y="-1.5" yaw="0.0"/>
+                      </ReactiveFallback>
+                      <Search/>
+                    </Parallel>
+                  </ReactiveSequence>
+                </ReactiveSequence>
+              </ReactiveFallback>
+
+              <!-- 구출 완료를 위한 행동: 재검출 → C·D 복귀 ∥ limo_b 출동 → 10s 대기 -->
+              <ReactiveFallback>
+                <IsTargetConfirmed/>
+                <CatchTarget/>
+              </ReactiveFallback>
+              <SetLed robot_key="finder" color="red"/>
+              <Parallel success_count="2">
+                <ReactiveFallback>
+                  <AreDronesReturn robots_key="searchers" exclude_key="finder"/>
+                  <ReturnDrones robots_key="searchers" exclude_key="finder"/>
+                </ReactiveFallback>
+                <ReactiveSequence>
+                  <ReactiveFallback>
+                    <IsLimoAt robot="limo_b" target_key="P_N_limo"/>
+                    <LimoNavigateTo robot="limo_b" target_key="P_N_limo"/>
+                  </ReactiveFallback>
+                  <SetLed robot_key="finder" color="green"/>
+                  <Idle/>
+                </ReactiveSequence>
+              </Parallel>
+            </ReactiveSequence>
+          </ReactiveFallback>
+
+          <!-- 미션 완료를 위한 행동: LED 소등, limo_b ∥ 드론 전원 복귀 (리모 1대라 브랜치 하나) -->
+          <SetLed robot="all" color="off"/>
+          <Parallel success_count="2">
+            <ReactiveFallback>
+              <IsLimoAt robot="limo_b" x="1.5" y="-1.5"/>
+              <LimoNavigateTo robot="limo_b" x="1.5" y="-1.5" yaw="0.0"/>
+            </ReactiveFallback>
+            <ReactiveFallback>
+              <AreDronesReturn robots_key="all_drones"/>
+              <ReturnDrones robots_key="all_drones"/>
+            </ReactiveFallback>
+          </Parallel>
+        </ReactiveSequence>
+      </ReactiveFallback>
+    </ReactiveSequence>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="UpdateBlackboard" editable="true"/>
+    <Action ID="Idle" editable="true"/>
+    <Action ID="SetLed" editable="true">
+      <input_port name="color"/><input_port name="robot"/><input_port name="robot_key"/>
+    </Action>
+    <Action ID="DroneTakeoff" editable="true">
+      <input_port name="robot"/><input_port name="height"/><input_port name="duration"/>
+    </Action>
+    <Action ID="DroneGoTo" editable="true">
+      <input_port name="robot"/><input_port name="robot_key"/>
+      <input_port name="x"/><input_port name="y"/><input_port name="z"/><input_port name="alt"/>
+      <input_port name="target_key"/><input_port name="duration"/>
+    </Action>
+    <Action ID="DroneLand" editable="true"><input_port name="robot"/></Action>
+    <Action ID="LimoNavigateTo" editable="true">
+      <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="yaw"/><input_port name="target_key"/>
+    </Action>
+    <Action ID="Search" editable="true"/>
+    <Action ID="Observer" editable="true"/>
+    <Action ID="ReturnDrones" editable="true">
+      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/>
+    </Action>
+    <Action ID="CatchTarget" editable="true"/>
+    <Condition ID="PreflightReady" editable="true"/>
+    <Condition ID="IsMissionComplete" editable="true"/>
+    <Condition ID="IsRescue" editable="true"><input_port name="robot"/><input_port name="target_key"/></Condition>
+    <Condition ID="IsMMFound" editable="true"/>
+    <Condition ID="IsTMFound" editable="true"/>
+    <Condition ID="IsTargetConfirmed" editable="true"/>
+    <Condition ID="IsDroneAt" editable="true">
+      <input_port name="robot"/><input_port name="robot_key"/>
+      <input_port name="x"/><input_port name="y"/><input_port name="z"/><input_port name="alt"/>
+      <input_port name="target_key"/><input_port name="tol"/><input_port name="hold"/>
+    </Condition>
+    <Condition ID="IsDroneAirborne" editable="true"><input_port name="robot"/></Condition>
+    <Condition ID="IsDroneLanded" editable="true"><input_port name="robot"/></Condition>
+    <Condition ID="AreDronesReturn" editable="true">
+      <input_port name="robots"/><input_port name="robots_key"/><input_port name="exclude_key"/><input_port name="latch"/>
+    </Condition>
+    <Condition ID="IsLimoAt" editable="true">
+      <input_port name="robot"/><input_port name="x"/><input_port name="y"/><input_port name="target_key"/><input_port name="tol"/>
+    </Condition>
+  </TreeNodesModel>
+</root>

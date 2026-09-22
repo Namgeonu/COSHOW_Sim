@@ -1,0 +1,184 @@
+# === 시뮬 전용 === coshow_rehearsal.yaml 사본, preflight.required 만 false. 실기체는 원본을 쓴다.
+# COSHOW 실기체 약식 리허설 설정 (4x4 m 실내 테스트장, 라이트하우스 + crazyswarm2)
+# 실행: python3 main.py --config scenarios/coshow/configs/coshow_rehearsal.yaml
+#
+# coshow_sim.yaml 과의 차이 (bt_nodes.py 는 동일한 것을 쓴다):
+#   - 좌표계 축소: 10x10 시뮬 아레나 -> 4x4 m 실습장. 원점 (0,0) 은 동일.
+#   - 리모 부재:   실기체가 없어 tools/fake_limo.py 가 odom + navigate_to_pose 를 대신한다.
+#                  BT 흐름 검증이 목적이므로 리모 노드를 트리에서 빼지 않는다.
+#   - 고도 분리:   충돌 우려로 탐색 드론마다 고도를 나눈다 (drones.*.altitudes 재정의).
+#   - 탐색 약식:   레인 1개 = x축 왕복만. lane_spacing 을 구역 y폭과 같게 두면 레인이 1개가 된다.
+scenario:
+  environment: scenarios.coshow
+
+agent:
+  namespaces: ""
+  # default_bt.xml 에서 한 곳만 다르다: cf230 이 착륙한 뒤에 탐색을 시작한다.
+  # 좁은 실습장에서 cf230 복귀(0.5)와 cf231 탐색(0.4)이 겹치는 것을 막는다.
+  behavior_tree_xml: "rehearsal_1limo_bt.xml"   # [1대용] 리모 1대(limo_b) 겸임
+
+bt_runner:
+  bt_tick_rate: 10.0
+  bt_visualiser:
+    enabled: True
+    screen_width: 700
+    screen_height: 520
+    direction: Vertical
+  profiling_mode: False
+
+# ---------------- COSHOW 시나리오 파라미터 (bt_nodes.py가 읽음) ----------------
+coshow:
+
+  # Phase 1: 관측
+  observe_point: {x: 0.0, y: 0.0, yaw: 1.57}   # 리허설 미션마커가 바닥 (0,0) 에 있음
+  limo_approach_dx: 0.0   # P_N 에서 x 로 이만큼 물러선 지점이 P_N_limo. 리허설은 건물이 없어 물러설 필요가 없다
+  mission_marker_ids: [11, 14]
+  marker_id_offset: 10              # target_id = mission_id - 10
+  confirm_frames: 3
+  confirm_window_sec: 3.0          # 이 시간(초) 안에 confirm_frames 프레임 이상이면 확정 (0=연속 방식)
+
+  # Phase 2/3: 탐색·구조
+  seen_now_window: 0.5
+  recheck_timeout: 15.0
+  rescue_sec: 10.0
+
+  # ── 투입 기체 명단: 역할(슬롯)과 기체의 분리 ──
+  # 슬롯이 자리(base = 스폰 위치이자 복귀 목적지)·고도 층·탐색 구역을 정한다. 어떤 기체를 꽂든
+  # 그 슬롯의 값을 물려받는다. 사람이 기체를 슬롯 자리에 놓고 시작하면 된다.
+  # scenarios/coshow/roster.py 가 BT 시작 전에 slots → drones / observe_drone / searchers /
+  # search.zones 로 풀어 쓴다. altitudes 는 drones.<cf>.altitudes 가 되어 _param 2단 구조가 그대로 동작한다.
+  roster:
+    enabled: true                             # 실기체: BT 시작 시 4칸 프롬프트 (Mission / Search a,b,c)
+    available: [cf230, cf231, cf232, cf233, cf234, cf235, cf236, cf237]   # 보유 8대. 입력 검증용
+  slots:
+    # 관측 담당. 이륙 0.7 -> 관측점 -> 복귀는 0.5 로 낮춰 착륙
+    mission:
+      default: cf230
+      base: [-1.0, 0.0]
+      # search 1.0: 탐색기 부족 시 미션기가 탐색에 투입될 때 쓰는 전용 고도층 (0.8/1.2 사이).
+      # 퇴역한 기체의 고도층은 재사용하지 않는다 (LOST 기체가 그 층에 떠 있을 수 있다).
+      altitudes: {takeoff: 0.7, observe: 0.7, capture: 0.7, return: 0.5, search: 1.0}
+    # 탐색 3슬롯. 고도를 0.6 / 0.8 / 1.2 로 나눠 x·y 추정이 흔들려도 충돌하지 않게 한다.
+    # 복귀 때도 고도를 유지한다 (내려오면 서로 같은 평면에서 만난다). 순서 = 출격 순서.
+    # lane_spacing 이 구역 y폭과 같아 레인 1개 = x축 왕복만 한다.
+    search_a:
+      default: cf231
+      base: [-1.5, 1.5]
+      altitudes: {takeoff: 0.6, search: 0.6, capture: 0.6, return: 0.6}
+      zone: {x: [0.0, 1.5], y: [ 1.3,  1.7]}      # x[0,1.5] 로 단축(미션기 진입 충돌 회피). 레인중앙 y = +1.5
+    search_b:
+      default: cf232
+      base: [-1.5, 0.0]
+      altitudes: {takeoff: 0.8, search: 0.8, capture: 0.8, return: 0.8}
+      zone: {x: [0.0, 1.5], y: [-0.2,  0.2]}      # x[0,1.5] 로 단축. 레인중앙 y =  0.0
+    search_c:
+      default: cf233
+      base: [-1.5, -1.5]
+      altitudes: {takeoff: 1.2, search: 1.2, capture: 1.2, return: 1.2}
+      zone: {x: [0.0, 1.5], y: [-1.7, -1.3]}      # x[0,1.5] 로 단축. 레인중앙 y = -1.5
+
+  # 실기체가 없다. tools/fake_limo.py 가 이 토픽과 navigate_to_pose 액션을 제공한다.
+  # base 는 default_bt.xml 의 LimoNavigateTo 복귀 좌표와 일치해야 IsMissionComplete 가 성립한다.
+  limos:   # [1대용] 리모 1대만: limo_b 가 운반·구조 겸임
+    limo_b: {base: [1.5, -1.5], base_yaw: 0.0, pose_topic: /limo_b/odom}
+
+  search:
+    stagger_sec: 3.0
+    wp_tol: 0.2
+    lane_axis: y
+    # 생존 탐색기가 3대 미만이면 미션기(미션 완수·착륙 후, health OK)를 탐색에 투입한다.
+    # 투입 구역은 "원 담당의 착륙이 확인된(클리어)" 구역만. 매 tick 재평가라 탐색 중간 고장에도 반응.
+    observe_join: true
+    # lane_spacing 을 각 구역의 y폭과 같게 두면 n_lanes = 1 이 되어
+    # 레인 중앙 y 를 고정한 채 x 만 왕복한다 (지그재그 없음).
+    lane_spacing: 0.4
+    # zones 는 여기 적지 않는다. slots.search_*.zone 에서 roster 가 만든다.
+
+  tolerances:
+    drone_at: 0.15
+    drone_hold: 1.0
+    limo_at: 0.3
+    # ⚠️ 시뮬의 0.4 를 그대로 쓰면 안 된다. cf231 의 탐색 고도가 정확히 0.4 라
+    # "아직 지상" 으로 판정되어 Search 가 이륙만 무한 반복한다.
+    airborne_z: 0.25
+    landed_z: 0.06
+
+  # 기체 상태 판정 (UpdateBlackboard → bb['health']). Search 가 OK 아닌 탐색 드론을 퇴역시켜
+  # 비상 착륙시키고, 착륙이 확인되면 그 구역을 최근접 생존 드론이 이어받는다.
+  # 실기체는 시뮬보다 느리게 난다 (goto_short 10 s / 3 m ≈ 0.3 m/s, 이륙 0.6 m / 8 s).
+  # 0.3 m 를 움직이는 데 최대 4~5 s 라 여유를 10 s 로 둔다. pose 는 5 Hz.
+  health:
+    pose_max_age: 5.0
+    required_movement_radius: 0.3
+    movement_time_allowance: 10.0
+    goal_reached_tol: 0.3
+    frame_max_age: 10.0             # AI-deck 스트림. 0 이면 BLIND 판정 끔
+    t_recover: 3.0
+    mission_takeover: true          # 미션기 고장 시 탐색기가 역할 승계 (Observer 노드)
+    lost_clear_policy: timeout      # 시뮬 전용 완화. ⚠️ 실기(coshow_rehearsal.yaml)는 strict
+    lost_clear_timeout: 8.0         # 시뮬: 이어받기 확인용 단축 (실기체 원본은 12)
+    stale_warn_period: 5.0
+
+  # 전역 기본값. 드론별 재정의가 없는 키만 여기서 읽힌다 (지금은 전부 여기서 읽힌다).
+  durations:
+    takeoff: 8.0
+    land: 8.0
+    goto_short: 10.0
+    goto_long: 20.0                 # 최장 이동이 3 m. 완만한 궤적이라 가속 중 기울기가 작다
+    short_dist: 1.0
+    capture: 10.0
+
+  # 전역 기본값. 위 drones.*.altitudes 재정의가 우선한다.
+  altitudes:
+    takeoff: 0.8
+    observe: 1.0
+    search: 0.8
+    capture: 0.8
+    return: 0.6
+
+  # Ctrl+C 로 BT 를 끌 때 종료 전에 공중의 기체를 controlled landing 시킨다 (bt_nodes.py
+  # _install_emergency_land). 드론 명령은 서비스라 액션처럼 취소되지 않는다. 이게 없으면
+  # 이미 나간 go_to 를 펌웨어가 완주한 뒤 그 자리에서 무한 호버해, 조종할 주체 없이 공중에 남는다.
+  # 절차: land(0.05 m, durations.land) → pose 로 착륙 확인(z <= 0.15) → 미확인 기체만 1회 재시도
+  #       → 확인된 기체만 disarm → 종료. emergency(모터 즉시 차단)는 쓰지 않는다.
+  # 신선한 pose 가 tolerances.landed_z 이하이고 마지막 명령이 takeoff/go_to 가 아닌 기체는
+  # 이미 바닥으로 보고 land 를 보내지 않는다. 착륙 중 Ctrl+C 를 또 눌러도 절차는 계속된다.
+  emergency_land_on_exit: true
+
+  # 실기체 비행 전 안전 관문 (bt_nodes.py 의 PreflightReady 조건, rehearsal_bt.xml 맨 위).
+  # true 면 BT 가 crazyswarm2 의 /cfX/pose·/cfX/status·/cfX/kalman_variance 를 직접 읽어
+  # drones 의 네 대 모두 아래 관문을 통과할 때까지 트리 아래로 내려가지 않는다 (명령 0 건).
+  # 판단만 하고 명령은 보내지 않는다 (estimator reset·arm·takeoff·파라미터 쓰기 없음).
+  # 통과한 순간 latch 되어 비행 중에는 다시 검사하지 않는다.
+  # 별도의 tools/preflight_node.py 를 띄울 필요가 없다 (그 노드는 /preflight/ready 를 내지만
+  # BT 는 더 이상 그 토픽을 보지 않는다).
+  # ⚠️ Webots 시뮬에는 crazyswarm2 가 없어 status/kalman_variance 토픽이 없으므로 false.
+  #    실기체로 옮길 때 반드시 true 로 바꿀 것.
+  # 기대 초기위치는 drones.<cf>.base 에 z=0 을 붙인 값이다. crazyflies.yaml 의
+  # initial_position 과 같아야 한다 (현재 cf230 (-1.0,0.0,0), cf231 (-1.5,1.5,0),
+  # cf232 (-1.5,0.0,0), cf233 (-1.5,-1.5,0)).
+  # kalman_variance 는 crazyflies.yaml 의 custom_topics 로 켜야 한다
+  #   (vars: kalman.varPX, kalman.varPY, kalman.varPZ). 2 Hz 면 10 샘플에 약 5 초.
+  preflight:
+    required: false        # 시뮬 전용 사본: crazyswarm2 없음. 실기체는 coshow_rehearsal.yaml (true)
+    # 사전점검 게이트는 시뮬에서도 켠다 (pose·카메라만 검사, 칼만·상태는 required=false 라 생략).
+    # ⚠️ 시뮬에서 기본 명단이 아닌 로스터를 입력하면 Webots 스폰 위치가 고정이라 초기위치
+    #    항목이 어긋난 것으로 나올 수 있다 (월드 파일이 자리를 정하기 때문. 실기체는 무관).
+    gate: true
+    gate_window_sec: 10.0
+    kalman_history_len: 10        # 축별 최근 샘플 수. 이만큼 쌓이기 전에는 ready 아님
+    kalman_threshold: 0.001       # 축별 max(history) - min(history) 가 이 값 미만이어야 수렴
+    pose_max_age: 0.8             # 마지막 pose 가 이보다 오래되면 ready 아님 (초)
+    pose_tolerance: 0.30          # 초기위치 대비 x/y/z 축별 허용 오차 (m). 배치 실수만 잡는 느슨한 값
+    pose_stable_time: 2.0         # 허용 오차 안에 연속으로 머물러야 하는 시간 (초). 벗어나면 0 부터 다시
+    status_max_age: 1.0           # 마지막 /status 가 이보다 오래되면 ready 아님 (초)
+    cam_max_age: 2.0              # 카메라 프레임이 이보다 오래되면 ready 아님 (초). 검출 노드 발행=영상 수신
+    cam_startup_grace: 8.0        # 시작 후 첫 프레임까지 유예 (초). 이 안에 프레임 0장이면 카메라 없음으로 본다
+
+  led_topic_suffix: led
+  # 관람자 대시보드용 미션 상태 발행 토픽 (std_msgs/String JSON). null/'' 로 두면 발행 안 함.
+  mission_state_topic: /coshow/mission_state
+  # UpdateBlackboard 시작 게이트에 리모 odom 수신까지 요구할지.
+  # false: 드론 pose 만 확인(리모 pose 내용은 BT 가 안 씀, 도착은 Nav2 액션으로 판정).
+  # true: 예전처럼 limo_a/limo_b odom 수신도 시작 조건에 포함.
+  require_limo_pose: false
