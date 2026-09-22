@@ -14,6 +14,12 @@ parser.add_argument('--observe', type=str, default=None, help='Mission Drone, �
 parser.add_argument('--searchers', type=str, default=None, help='Search Drone a,b,c (쉼표 구분), 예: --searchers cf230,cf232,cf237')
 parser.add_argument('--roster', action='store_true', help='config 와 무관하게 기체 선택 프롬프트를 띄운다')
 parser.add_argument('--no-roster', action='store_true', help='프롬프트를 띄우지 않고 slots.default 명단을 쓴다')
+# 사전점검 게이트 on/off. 지정하지 않으면 config 의 preflight.gate 를 따른다.
+pf_group = parser.add_mutually_exclusive_group()
+pf_group.add_argument('--preflight', dest='preflight', action='store_true', default=None,
+                      help='사전점검 게이트 강제 ON (config preflight.gate 무시)')
+pf_group.add_argument('--no-preflight', dest='preflight', action='store_false', default=None,
+                      help='사전점검 게이트 강제 OFF (config preflight.gate 무시)')
 args = parser.parse_args()
 
 # Load configuration and initialize the environment
@@ -31,6 +37,10 @@ apply_roster(config,
              force_prompt=args.roster)
 # 사전점검 게이트 (preflight.gate). 점검표 브리핑 → y/n 승인 → 결함 승인 시 config 에
 # degraded 를 채워 bt_nodes 가 t=0 부터 재배치를 발동한다. BTRunner import 전이어야 한다.
+# CLI 플래그(--preflight/--no-preflight)가 있으면 config 의 preflight.gate 를 덮어쓴다.
+if args.preflight is not None:
+    config.setdefault('coshow', {}).setdefault('preflight', {})['gate'] = args.preflight
+    print(f'[사전점검] CLI 플래그로 게이트 {"ON" if args.preflight else "OFF"} (config 무시)', flush=True)
 from scenarios.coshow.preflight_gate import run_gate
 run_gate(config)
 from modules.bt_runner import BTRunner
