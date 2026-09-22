@@ -341,7 +341,7 @@ class UpdateBlackboard(ConditionWithROSTopics):
 
         self._pose = {}                      # robot -> dict
         self._det_latest = {}                # drone -> msg
-        self._hits = {}                      # drone -> (id, [검출시각들])  슬라이딩 윈도우 확정
+        self._hits = {}                      # drone -> (id, [(t,x,y,z,off)])  슬라이딩 윈도우 확정(방식 B)
         self._mission_event = None           # 확정 대기 중인 이벤트
         self._target_events = []             # 확정된 target 검출 이벤트 큐
         self._seen_now = {}                  # drone -> t
@@ -440,40 +440,47 @@ class UpdateBlackboard(ConditionWithROSTopics):
                 if win <= 0:
                     self._hits[drone] = (None, [])
             else:
-                prev_id, times = self._hits.get(drone, (None, []))
-                if prev_id != interest:
-                    times = []                      # 다른 ID 로 바뀌면 그 ID 의 기록만 새로 센다
-                if win > 0:
-                    times = [x for x in times if t - x <= win]   # 윈도우 밖 오래된 것 제거
-                times.append(t)
-                if win <= 0:
-                    times = times[-need:]           # 폴백(연속): 마지막 need 개만
-                self._hits[drone] = (interest, times)
-                confirmed = len(times) >= need
-            if confirmed:
-                # interest 로 고른 그 마커의 역투영 좌표를 쓴다. 한 프레임에 마커가
-                # 여러 개 잡혀도 타겟만 정확히 골라진다.
-                # (예전에는 msg.drone_pose 를 읽었다. 검출 노드가 거기에 마커 좌표를
-                #  덮어써 보내는 우회책이었는데, 마커가 2개 이상이면 어느 것인지 몰라
-                #  덮어쓰기를 건너뛰었고, 그러면 "드론이 서 있던 자리" 가 마커 위치로
-                #  둔갑해 조용히 엉뚱한 곳으로 갔다.)
-                # world_x/world_y 가 0 이면 역투영 실패이므로 그 프레임은 버리고
-                # 다음 프레임에 다시 시도한다. z 는 지면 마커라 역투영이 주지 않아
-                # 드론 고도를 그대로 쓴다 (CatchTarget 이 어차피 호버 고도로 덮는다).
+                # 이 프레임의 추정 위치와 "드론 바로 아래로부터의 수평 거리"(off)를 기록한다.
+                # 크기기반 역투영의 x,y 오차는 이 수평 거리에 비례한다(드론이 마커 바로
+                # 위일수록 정확). 그래서 확정 시 윈도우 안에서 off 가 가장 작은 프레임을
+                # 고른다(방식 B). 픽셀 중심 근접과 동치이면서 이미지 크기 설정이 필요 없다.
                 m = next((k for k in msg.markers if k.id == interest), None)
+                entry = None
                 if m is not None:
-                    ev = {'drone': drone, 'id': interest, 't': t,
-                          'pose': {'x': float(m.world_x),
-                                   'y': float(m.world_y),
-                                   'z': msg.drone_pose.pose.position.z}}
-                    if on_mission:
-                        # 미션마커: pose 는 이후 안 쓰이고 id 만 target_id 로 쓴다.
-                        # 마커가 원점(0,0)에 있으면 역투영도 (0,0)이라, world 가드를 두면
-                        # (0,0)=역투영 실패로 오인해 확정을 영영 놓친다. 그래서 가드 없이 확정.
-                        self._mission_event = ev
-                    elif m.world_x != 0.0 or m.world_y != 0.0:
-                        # 타겟마커: P_N 으로 이동해야 하므로 역투영 실패(0,0)는 버리고 다음 프레임 재시도.
-                        self._target_events.append(ev)
+                    dp = msg.drone_pose.pose.position
+                    wx, wy = float(m.world_x), float(m.world_y)
+                    entry = (t, wx, wy, float(dp.z), _dist2(wx, wy, dp.x, dp.y))
+                prev_id, hist = self._hits.get(drone, (None, []))
+                if prev_id != interest:
+                    hist = []                       # 다른 ID 로 바뀌면 그 ID 의 기록만 새로 센다
+                if win > 0:
+                    hist = [e for e in hist if t - e[0] <= win]   # 윈도우 밖 오래된 것 제거
+                if entry is not None:
+                    hist.append(entry)
+                if win <= 0:
+                    hist = hist[-need:]             # 폴백(연속): 마지막 need 개만
+                self._hits[drone] = (interest, hist)
+                confirmed = len(hist) >= need
+            if confirmed:
+                # 방식 B: 윈도우 안에서 드론 바로 아래에 가장 가까운(=x,y 오차 최소) 프레임 채택.
+                # (예전엔 확정시키는 마지막 한 프레임만 썼다. 그 한 장이 마커가 화면
+                #  가장자리에 걸린 프레임이면 크기기반 오차가 그대로 P_N 에 박혔다.)
+                # z 는 선택된 프레임의 드론 고도 — 수평 위치엔 안 쓰이고 CatchTarget 이
+                # 어차피 호버 고도로 덮는다.
+                hist = self._hits[drone][1]
+                if on_mission:
+                    # 미션마커: pose 는 이후 안 쓰이고 id 만 target_id 로 쓴다. (0,0) 도 후보에
+                    # 남긴다 — 마커가 원점에 있으면 역투영도 (0,0)이라 가드를 두면 확정을 놓친다.
+                    best = min(hist, key=lambda e: e[4])
+                    self._mission_event = {'drone': drone, 'id': interest, 't': t,
+                                           'pose': {'x': best[1], 'y': best[2], 'z': best[3]}}
+                else:
+                    # 타겟마커: P_N 으로 이동해야 하므로 역투영 실패(0,0) 프레임은 후보에서 뺀다.
+                    valid = [e for e in hist if e[1] != 0.0 or e[2] != 0.0]
+                    if valid:
+                        best = min(valid, key=lambda e: e[4])
+                        self._target_events.append({'drone': drone, 'id': interest, 't': t,
+                                                    'pose': {'x': best[1], 'y': best[2], 'z': best[3]}})
             if tid is not None and tid in ids:
                 self._seen_now[drone] = t
 
