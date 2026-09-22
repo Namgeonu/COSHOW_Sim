@@ -77,14 +77,9 @@ export function createTwin(canvas,hello,{fx='',reducedMotion=false}={}) {
   // Font completion replaces pixels in existing textures; it never creates more textures.
   document.fonts?.ready.then(()=>{if(!disposed)for(const draw of labels)draw();});
 
-  for(const [id,p] of Object.entries(hello.field?.markers?.targets||{})) {
-    if(!Array.isArray(p)||!p.slice(0,2).every(Number.isFinite))continue;
-    const size=hello.field?.marker_size_m||.2;
-    const mat=material('#58677E',{emissive:'#000000',emissiveIntensity:.6});
-    const tile=mesh(new THREE.BoxGeometry(size,.012,size),mat);tile.position.set(p[0],.012,-p[1]);
-    const label=billboard(id,.17);label.position.set(p[0],.25,-p[1]);scene.add(label);
-    markers.set(String(id),{mat,tile});
-  }
+  // 바닥 마커는 그리지 않는다. 실기 기준 마커 위치는 사전에 알 수 없고(수색 시나리오),
+  // 시뮬 바닥에 미리 박힌 정사각형이 정답을 노출하므로 뺀다. 발견 후에는 foundRing 이
+  // 실제 확정 위치(P_N)에만 잠깐 나타난다.
   if(Array.isArray(hello.observe_point)&&hello.observe_point.slice(0,2).every(Number.isFinite)) {
     const ring=mesh(new THREE.RingGeometry(.17,.19,48),basic(colors.cool,{transparent:true,opacity:.55,side:THREE.DoubleSide}));
     ring.rotation.x=-Math.PI/2;ring.position.set(hello.observe_point[0],.012,-hello.observe_point[1]);
@@ -141,28 +136,12 @@ export function createTwin(canvas,hello,{fx='',reducedMotion=false}={}) {
     leader.frustumCulled=false;leader.visible=false;leader.renderOrder=2;scene.add(leader);
     const shadow=mesh(new THREE.CircleGeometry(kind==='drone'?.04:.09,20),basic(colors.cool,{transparent:true,opacity:.38,depthWrite:false}));
     shadow.rotation.x=-Math.PI/2;
+    // 비행 궤적(trail)은 그리지 않는다 — 요청에 따라 제거. 고도 표시선(stem)만 유지.
     let stem=null,trail=null,trailLine=null;
     if(kind==='drone') {
       const stemGeometry=own(new THREE.BufferGeometry());stemGeometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3));
       stem=new THREE.Line(stemGeometry,own(new THREE.LineBasicMaterial({color:colors.cool,transparent:true,opacity:.32})));
       stem.frustumCulled=false;scene.add(stem);
-      trail=new TrailBuffer();
-      const geometry=own(new THREE.BufferGeometry());
-      geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(trail.capacity*6),3).setUsage(THREE.DynamicDrawUsage));
-      geometry.setAttribute('stamp',new THREE.BufferAttribute(new Float32Array(trail.capacity*2),1).setUsage(THREE.DynamicDrawUsage));
-      geometry.setDrawRange(0,0);
-      const trailMaterial=own(new THREE.ShaderMaterial({transparent:true,depthWrite:false,
-        uniforms:{now:{value:0},tint:{value:new THREE.Color(colors.cool)},strength:{value:.5}},
-        vertexShader:'attribute float stamp; varying float at; void main(){at=stamp;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-        fragmentShader:`uniform float now;
-          uniform vec3 tint;
-          uniform float strength;
-          varying float at;
-          void main() {
-            gl_FragColor=vec4(tint,clamp(1.0-(now-at)/10.0,0.0,1.0)*strength);
-            #include <colorspace_fragment>
-          }` }));
-      trailLine=new THREE.LineSegments(geometry,trailMaterial);trailLine.frustumCulled=false;scene.add(trailLine);
     }
     const materials=[];group.traverse(item=>{if(item.material&&!materials.includes(item.material))materials.push(item.material);});
     const entry={kind,group,bodyMat,ringMat,label,leader,halo,labelOffset:kind==='drone'?.3:.35,
@@ -183,7 +162,6 @@ export function createTwin(canvas,hello,{fx='',reducedMotion=false}={}) {
       const appearance=robotAppearance(hello,id,node.row,state,view,0);
       if(appearance.fresh) {
         node.track.update(node.row.pose,received);
-        if(node.trail&&received-node.lastTrail>=.095) {node.trail.push(received,node.row.pose);node.lastTrail=received;}
       }
     }
     for(const [id,node] of robotNodes)if(!ids.includes(id)) {
@@ -279,21 +257,11 @@ export function createTwin(canvas,hello,{fx='',reducedMotion=false}={}) {
         const attribute=node.stem.geometry.attributes.position;
         attribute.array.set([position.x,.014,-position.y,position.x,Math.max(0,position.z),-position.y]);attribute.needsUpdate=true;
       }
-      if(node.trailLine) {
-        const geometry=node.trailLine.geometry;
-        const count=node.trail.writeSegments(geometry.attributes.position.array,geometry.attributes.stamp.array,now);
-        geometry.setDrawRange(0,count);geometry.attributes.position.needsUpdate=geometry.attributes.stamp.needsUpdate=true;
-        node.trailLine.material.uniforms.now.value=now;node.trailLine.material.uniforms.strength.value=active?.48:.12;
-      }
       const lane=lanes.get(id);
       if(lane) {
         const searching=active&&view.phase==='search'&&appearance.fresh&&position.z>.05;
         lane.material.color.set(searching?colors.blue:colors.ink);lane.material.opacity=searching?.7:.18;
       }
-    }
-    for(const [id,marker] of markers) {
-      const found=active&&state?.mission?.P_N&&String(state.mission.target_id)===id;
-      marker.mat.emissive.set(found?(colors[state.mission.led?.[state.mission.finder]]||colors.cool):'#000000');
     }
     const ringProgress=(now-foundAt)/1.8;
     foundRing.visible=active&&ringProgress>=0&&ringProgress<1;
