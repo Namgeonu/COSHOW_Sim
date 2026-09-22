@@ -125,9 +125,9 @@ coshow:
     takeoff: 8.0
     land: 8.0
     goto_short: 10.0
-    goto_long: 15.0                 # 최장 이동이 3 m. 완만한 궤적이라 가속 중 기울기가 작다
+    goto_long: 20.0                 # 최장 이동이 3 m. 완만한 궤적이라 가속 중 기울기가 작다
     short_dist: 1.0
-    capture: 7.0
+    capture: 10.0
 
   # 전역 기본값. 위 drones.*.altitudes 재정의가 우선한다.
   altitudes:
