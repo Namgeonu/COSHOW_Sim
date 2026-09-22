@@ -1609,11 +1609,11 @@ class Search(_MultiDroneAction):
       (순수 미션기 — 승계된 탐색기가 아님)이며, health OK 이고, 미션을 끝내고(MM 확정)
       기지에 착륙해 있고, 클리어된(=원 담당의 착륙이 확인된) 구역이 실제로 존재할 때만
       pool 에 합류한다. 매 tick 재평가하므로 탐색 도중의 추가 고장에도 그때 투입된다.
-    - 합류 기체는 자기 구역이 없다 — 클리어 구역만 배분받아 순환한다. 고도는 자기 슬롯의
+    - 합류 기체는 자기 구역이 없다 — 클리어된 빈 구역만 배분받아 순환한다. 고도는 자기 슬롯의
       altitudes.search (실기: mission 슬롯 전용 층). 죽은 기체의 고도층은 쓰지 않는다.
-    - 합류 순간 기존 이어받기 배정(taken_by)을 한 번 비워 부하 우선 키로 재배분한다
-      (1회성 이벤트라 배정 흔들림 없음). 예) 231·232 퇴역, 233 만 생존 → 230 합류 시
-      230 이 231 구역, 233 이 자기+232 구역으로 갈라진다.
+    - 배정은 _effective_zones 가 매 tick 고정 구역 순번(홈 번호)으로 다시 계산한다(래치 없음).
+      미션기 홈=가운데·담당 0 이라 빈 구역을 인접 순으로 먼저 흡수하고, 생존 탐색기는 자기
+      구역을 유지한다. 예) 231·232 퇴역·233 생존·230 합류 → 230=[상,중], 233=[하].
     """
 
     def __init__(self, name, agent, stagger_sec=None):
@@ -1631,7 +1631,6 @@ class Search(_MultiDroneAction):
         # 퇴역(ROLE['retired'])·land 기록(ROLE['land_sent'])은 Observer 와 공유한다.
         self.pool = list(SEARCHERS)   # 탐색 참여 기체. 미션기 투입 시 뒤에 붙는다 (출격 순서 유지)
         self.cleared = set()    # 이어받아도 되는 퇴역 구역 (원 담당 착륙 확인/무이륙/타임아웃 정책)
-        self.taken_by = {}      # 퇴역 구역 -> 이어받은 드론
         self._warn_t = {}
         self._reset_state()
 
@@ -1717,61 +1716,55 @@ class Search(_MultiDroneAction):
         self.pool.append(obs)
         self.zone_list[obs], self.cyc[obs] = [], 0
         self.cur_zone[obs], self.idx[obs], self.dirn[obs] = None, 0, 1
-        # 부하 우선 키로 전체 재배분 (1회성). 예) 233 이 231·232 둘 다 물고 있었다면
-        # 하나를 미션기에게 넘겨 구역당 한 대에 가깝게 만든다.
-        self.taken_by.clear()
+        # 배정은 _effective_zones 가 매 tick 고정 홈 번호로 다시 계산한다(래치 없음). 미션기는
+        # 홈=가운데·담당 0 이라 합류 즉시 빈 구역을 인접 순으로 흡수한다 — 별도 재배분 불필요.
         print(f'[SEARCH] 탐색기 {len(alive)}/{len(SEARCHERS)}대 → 미션기 {obs} 탐색 투입 '
               f'(전용 고도 {_alt("search", obs):.1f} m, 클리어 구역만 배분)', flush=True)
 
     def _effective_zones(self, bb):
-        """드론 -> 순환할 구역 id 목록. 자기 구역을 이어받은 구역 사이사이에 끼운다.
+        """드론 -> 순환할 구역 id 목록. 고정 구역 순번(인덱스) 기준의 인접 배정.
 
-        예) cf232 가 cf231·cf233 을 이어받으면 [cf232, cf231, cf232, cf233] 로 만들어,
-        순환이 cf232→cf231→cf232→cf233→cf232→... 가 된다. 이어받은 구역으로 갈 때마다
-        자기 구역을 거치므로, 위 구역에서 아래 구역으로 가운데를 건너뛰지 않는다.
-        (자기 구역이 목록에 여러 번 나오므로 run() 은 값 검색이 아니라 위치 포인터 cyc 로 순환한다.)
+        실시간 pose 를 쓰지 않는다. 각 드론의 '홈 번호'(탐색기=자기 구역 번호, 투입 미션기=가운데)와
+        빈 구역의 번호만 비교해, 번호가 가장 붙은(인접한) 생존 드론이 그 빈 구역을 이어받는다.
+        동률이면 담당 구역 적은 드론 → 낮은 홈 번호. 홈도 구역도 같은 공간 순서라, 번호 인접
+        배정은 자동으로 연속 블록이 되어 한 드론이 남의 구역을 가로지르지 않는다. 순간 pose
+        끊김에 안 흔들리므로 래치(taken_by)도, 자기 구역을 사이에 끼우던 트릭도 불필요하다.
 
-        선정 키 = (보유 구역 수, 구역 중심까지 거리, 목록 순): 부하 우선이라 여러 구역이
-        비면 나눠 갖는다. 투입된 미션기는 자기 구역이 없어(보유 0) 첫 클리어 구역을 우선 받는다.
+        · 살아있는 탐색기는 자기 구역을 항상 유지.
+        · 투입 미션기(자기 구역 없음)는 홈=가운데 + 담당 0으로 시작 → 빈 구역을 먼저 흡수한다.
+          빈 구역의 원 담당은 이미 고장이라 생존기가 미션기보다 더 붙을 수 없어(기껏 동률),
+          동률은 담당 적은 미션기가 이긴다. 그래서 "빈 구역은 미션기가 먼저" 규칙이 자동 성립한다.
+        · 빈 구역은 착륙 확인된(cleared) 것만 이양한다.
+
+        예) cf232(중)·cf233(하) 고장, cf231(상) 생존 + cf230 투입:
+          홈 cf231=0, cf230=가운데(1). 중(1)→cf230, 하(2)→cf230(홈1 이 홈0 보다 붙음).
+          결과 cf231=[상], cf230=[중,하] — 붙어있는 두 구역만 미션기가 맡아 가로지름 없음.
         """
         alive = [d for d in self.pool if d not in ROLE['retired']]
         if not alive:
             return {}
-        borrowed = {d: [] for d in alive}
-        # 투입 우선 순위: 대기 중인 미션기(자기 구역이 없음)를 빈 구역에 먼저 넣는다.
-        # 기본 부하 = 탐색기는 1(자기 구역), 투입된 미션기는 0 → 빈 구역 배분에서 항상 먼저 뽑힌다.
-        # 이래야 "생존 탐색기가 멀리 있는 빈 구역까지 가로질러 가는" 상황을 막는다.
-        # 예) 231(상)·232(중) 퇴역, 233(하) 생존, 230 투입 (SEARCHERS 순서 = 상→중→하):
-        #   231(상): 230(부하0) 이 먼저 받음 → 230 이 맨 위 구역 담당 (233 이 위로 안 올라옴)
-        #   232(중): 230(1) vs 233(1) → 최근접(230 이 기지가 가운데라 더 가까움) → 230 이 받음
-        #   결과: 230=[231,232] 상·중 담당, 233 은 자기 하 구역 유지 → 233 이 가로지르지 않는다.
-        counts = {d: (1 if d in SEARCHERS else 0) for d in alive}
-        for dead in SEARCHERS:
-            if dead in alive or dead not in self.cleared:
-                continue
-            helper = self.taken_by.get(dead)
-            if helper is None or helper in ROLE['retired']:
-                cx, cy = _zone_center(self.zones[dead])
-
-                def key(d):
-                    p = bb['pose'].get(d)
-                    dist = _dist2(p['x'], p['y'], cx, cy) if p else float('inf')
-                    return (counts[d], dist, self.pool.index(d))
-                helper = min(alive, key=key)
-                self.taken_by[dead] = helper
-                print(f'[SEARCH] 구역 {dead} → {helper} 이어받음 (부하 우선 → 최근접 → 목록 순)', flush=True)
-            borrowed[helper].append(dead)
-            counts[helper] += 1
-        assign = {}
+        # 구역 공간 순번: 중심 y 내림차순(상단이 0). 구역 id = 원 담당 드론 이름.
+        order = sorted(self.zones, key=lambda z: _zone_center(self.zones[z])[1], reverse=True)
+        zidx = {z: i for i, z in enumerate(order)}
+        mid = len(order) // 2
+        homes = {d: (zidx[d] if d in zidx else mid) for d in alive}
+        counts = {d: 0 for d in alive}
+        zones_of = {d: [] for d in alive}
+        # 1) 살아있는 탐색기는 자기 구역 유지 (구역 id == 드론 이름)
         for d in alive:
-            if d in SEARCHERS:
-                lst = [d]
-                for b in borrowed[d]:
-                    lst += [b, d]        # 이어받은 구역 뒤에 자기 구역을 끼운다
-                assign[d] = lst[:-1] if len(lst) > 1 else lst   # 맨 끝 자기 구역은 순환이 되메우므로 제거
-            else:
-                assign[d] = list(borrowed[d])   # 투입된 미션기: 자기 구역이 없어 빌린 구역만 순환
-        return assign
+            if d in zidx:
+                zones_of[d].append(d)
+                counts[d] += 1
+        # 2) 빈(고장+클리어) 구역을 번호 인접 생존 드론에게 (동률: 담당 적은 → 낮은 홈)
+        for z in order:
+            if z in alive or z not in self.cleared:
+                continue
+            zi = zidx[z]
+            helper = min(alive, key=lambda d: (abs(homes[d] - zi), counts[d], homes[d]))
+            zones_of[helper].append(z)
+            counts[helper] += 1
+        # 3) 각 드론의 구역을 공간 순번으로 정렬 → 붙어있는 구역만 번호 순 순환 (가로지름 없음)
+        return {d: sorted(zones_of[d], key=lambda z: zidx[z]) for d in alive}
 
     def _apply_assign(self, bb):
         assign = self._effective_zones(bb)
