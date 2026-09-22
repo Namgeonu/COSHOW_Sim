@@ -80,8 +80,8 @@ coshow:
   # 실기체가 없다. tools/fake_limo.py 가 이 토픽과 navigate_to_pose 액션을 제공한다.
   # base 는 default_bt.xml 의 LimoNavigateTo 복귀 좌표와 일치해야 IsMissionComplete 가 성립한다.
   limos:
-    limo_a: {base: [-4.0, 2.0], base_yaw: 0.0, pose_topic: /limo_a/odom}
-    limo_b: {base: [-4.0, -2.0], base_yaw: 0.0, pose_topic: /limo_b/odom}
+    limo_a: {base: [1.5, 1.5], base_yaw: 0.0, pose_topic: /limo_a/odom}
+    limo_b: {base: [1.5, -1.5], base_yaw: 0.0, pose_topic: /limo_b/odom}
 
   search:
     stagger_sec: 3.0
