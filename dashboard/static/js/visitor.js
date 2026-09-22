@@ -193,8 +193,10 @@ function render() {
     r.card.dataset.fx = active ? (mission?.led?.[id] || (st === '복귀' ? 'white' : 'off')) : 'off';
     const threshold = hello.freshness_s?.pose ?? 1;
     const fresh = Number.isFinite(robot?.pose_age) && robot.pose_age <= threshold && robot?.pose;
+    // 배터리 스케일: ≥4.0V 비행 양호 → 초록 3칸, 3.7~4.0V → 노랑 2칸,
+    // ≤3.7V(비행 잘 안 되는 수준) → 빨강 1칸. (색은 glass.css 의 lv 1/2/3)
     const v = robot?.battery_v;
-    r.segs.dataset.lv = !Number.isFinite(v) ? 0 : v >= 3.85 ? 3 : v >= 3.70 ? 2 : 1;
+    r.segs.dataset.lv = !Number.isFinite(v) ? 0 : v >= 4.0 ? 3 : v > 3.7 ? 2 : 1;
     const z = fresh ? (robot.pose.z ?? 0) : 0;
     r.alt.style.width = `${Math.max(0, Math.min(100, z / 1.5 * 100))}%`;
   }
