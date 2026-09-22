@@ -19,7 +19,7 @@ let lastPhase = '__init__', popupTimer = null;
 
 const SLOT = 132;
 const STAGES = ['구출자 위치 확인', '구출자 탐색', '요구조자 구출', '복귀'];
-const PHASE_STAGE = {observe:0, handover:0, search:1, capture:1, rescue_dispatch:1, rescue:2, return:3, done:3};
+const PHASE_STAGE = {observe:0, handover:0, search:1, capture:2, rescue_dispatch:2, rescue:2, return:3, done:3};
 
 function node(tag, cls, content) {
   const el = document.createElement(tag);
