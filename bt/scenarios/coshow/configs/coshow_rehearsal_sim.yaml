@@ -179,3 +179,7 @@ coshow:
   led_topic_suffix: led
   # 관람자 대시보드용 미션 상태 발행 토픽 (std_msgs/String JSON). null/'' 로 두면 발행 안 함.
   mission_state_topic: /coshow/mission_state
+  # UpdateBlackboard 시작 게이트에 리모 odom 수신까지 요구할지.
+  # false: 드론 pose 만 확인(리모 pose 내용은 BT 가 안 씀, 도착은 Nav2 액션으로 판정).
+  # true: 예전처럼 limo_a/limo_b odom 수신도 시작 조건에 포함.
+  require_limo_pose: false

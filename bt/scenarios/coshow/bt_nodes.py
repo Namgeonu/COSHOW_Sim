@@ -532,7 +532,12 @@ class UpdateBlackboard(ConditionWithROSTopics):
 
         # 필수 pose 수신 확인. 사전점검에서 결함 승인된(DEGRADED) 기체는 pose 가 영영 없을 수
         # 있으므로 기다리지 않는다 — 안 빼면 BT 가 시작조차 못 한다.
-        required = [d for d in DRONES if d not in DEGRADED] + list(LIMOS)
+        # 리모는 기본적으로 게이트에서 뺀다: BT 는 리모 pose 내용을 쓰지 않고(리모 도착·복귀는
+        # Nav2 액션 결과 limo_arrived 로 판정), 이 항목은 리모 연결 라이브니스용일 뿐이다.
+        # 나중에 리모 odom 수신까지 시작 조건에 넣고 싶으면 config 에 require_limo_pose: true.
+        required = [d for d in DRONES if d not in DEGRADED]
+        if C.get('require_limo_pose', False):
+            required += list(LIMOS)
         if any(r not in bb['pose'] for r in required):
             missing = [r for r in required if r not in bb['pose']]
             bb['missing_pose'] = missing
