@@ -47,7 +47,6 @@ function popupFor(phase, mission) {
   const limoA = name((hello?.limos || [])[0]) || 'LIMO A';
   return ({
     observe: `${obs}이 구출 목표를 확인 중입니다.`,
-    handover: '구출자를 탐색합니다.',
     search: '구출자를 탐색합니다.',
     capture: `구출자를 발견하였습니다!! (구출자 위치 : ${coordinate(mission?.P_N)})`,
     rescue_dispatch: '리모가 구출자 위치로 출동합니다.',
