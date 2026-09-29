@@ -69,6 +69,14 @@ require_limo_pose: false   # 기본: 시작 게이트가 드론 pose만 확인 (
 ```
 - BT는 리모 pose 내용을 안 쓴다(도착은 Nav2 액션 결과로 판정). 그래서 기본 false.
 
+### (d) 타겟 포착 시각 서보 on/off — config 플래그
+`coshow_rehearsal*.yaml`:
+```yaml
+capture_servo:
+  enabled: true    # false 면 예전 원샷(추정 위치로 1회 이동) 방식으로 복귀
+```
+- 자세한 동작은 §5 참고.
+
 ---
 
 ## 3. BT가 리모/드론/검출에 요구하는 인터페이스 (담당자 확인용)
@@ -106,10 +114,42 @@ require_limo_pose: false   # 기본: 시작 게이트가 드론 pose만 확인 (
 - **사전점검 CLI 플래그** `--preflight` / `--no-preflight`.
 - **대시보드**: 실행 필수 파일만 남기고 정리, 배터리 바 스케일(≥4.0V 초록3 / 3.7~4.0 노랑2 / ≤3.7 빨강1), 3D 맵 바닥마커·드론궤적 제거, handover 팝업 제거, 캐러셀 발견 시 "구출" 단계로.
 - **검출 노드 카메라 발행** 추가.
+- **타겟 포착 시각 서보(CatchTarget)**: 한 방 이동 대신 "go_to→도착·정착→중심 측정→반복"으로 마커를 카메라 중심에 맞춘 뒤 확정. 실기 위치추정(depth) 오차 대응. (§5)
 
 ---
 
-## 5. 시뮬 전체 실행 (드론 4 + 리모 + 검출 + 대시보드)
+## 5. 타겟 포착 시각 서보 (CatchTarget) — 실기 위치추정 오차 대응
+
+실기에서 "마커 검출은 되는데 위치 추정(depth)이 부정확"한 문제를 구조적으로 우회한다.
+
+**동작 (스텝형, go_to 는 스텝당 딱 1회 — 매 tick 재발행 없음)**
+1. go_to 1회 전송 (1스텝: 게인 0.9, 최대 0.5 m / 2스텝부터: 게인 0.6, 최대 0.35 m).
+2. go_to duration 이 다 지나고 도착 허용오차(center_tol) 안에 들어온 뒤 `settle_sec` 정착.
+3. 정착 **후** 프레임으로 마커 오프셋(= 역투영 world_xy − 드론 pose) 측정.
+4. |오프셋| ≤ `center_tol_m`(0.10 m) → **포착 성공**: 최종 P_N = 드론 pose + 잔여(≤ tol/2 로 클램프),
+   `target_confirmed` 세팅 → finder 호버, 리모는 최종 P_N 으로 출동.
+5. 아니면 다음 go_to (오프셋이 안 줄거나 방향이 뒤집히면 게인 절반 = 오버슈트 자동 억제).
+
+**왜 depth 오차에 강한가**: 역투영 depth 가 e 배 틀려도 오프셋의 **방향은 맞고 크기만 e 배**라
+게인<1·스텝 상한으로 수렴하고, 마커가 중심에 오면 오프셋→0 이라 수렴 판정도 depth 와 무관.
+최종 위치는 Lighthouse 가 정확히 아는 **드론 자신의 pose** 기준이라 depth 오차가 결과에 안 남는다.
+
+**폴백**: `max_steps`(6) 초과 / 정착 후 `lost_wait_sec`(3 s) 마커 유실 → 가장 중심에 가까웠던 스텝으로 확정.
+도착 미확인은 `arrive_timeout_sec`(14 s) 뒤 그대로 측정으로 진행(교착 방지).
+
+**튜닝 키** (`capture_servo`): `center_tol_m`(성공 오차 범위), `first_gain`/`first_max_step_m`,
+`gain`/`max_step_m`, `max_steps`, `step_sec`, `settle_sec`, `arrive_timeout_sec`, `lost_wait_sec`.
+더 정밀하게 맞추려면 `center_tol_m` 을 줄이고(스텝 수 증가), 더 빠르게 하려면 `step_sec` 을 줄인다.
+
+**검증(통합 시뮬)**: depth 정확(e=1) 1스텝·오차 0 cm(회귀 없음) / e=1.5·2.5 ≤2스텝·1.9~2.5 cm /
+초기 오프셋 0.45 m + e=2.5 → 2스텝, 오버슈트 상한 내 / 탐색기 고장·미션기가 finder 인 경우 정상.
+
+**함께 바뀐 것**: 서보 모드에서는 UpdateBlackboard 의 재검출/타임아웃 확정을 끈다(CatchTarget 이 확정).
+미션기가 finder 가 될 때 옛 관측점 도착 기록으로 조기 확정되던 잠재 버그도 이로써 해소.
+
+---
+
+## 6. 시뮬 전체 실행 (드론 4 + 리모 + 검출 + 대시보드)
 
 모든 터미널 **같은 `ROS_DOMAIN_ID`** (예: 30 또는 33)로.
 ```bash
@@ -126,7 +166,7 @@ cd ~/COSHOW/dashboard && ./run.sh                    # T7
 
 ---
 
-## 6. 알아둘 점 / 미결
+## 7. 알아둘 점 / 미결
 
 - **실기 검출 노드(aideck_aruco_node.py)의 크기기반 역투영은 아직 미커밋.** 지붕 마커를 실기에서 쓰려면 커밋 필요.
 - 저장소에 건물/월드 실험(`worlds/coshow_integrated.wbt`, `protos/buildings/`, `controllers/roof_probe/` 등)이 **미커밋 WIP**로 남아 있음 — 이번 리허설 변경과 무관.
