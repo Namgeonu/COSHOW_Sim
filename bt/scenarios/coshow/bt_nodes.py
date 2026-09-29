@@ -294,6 +294,18 @@ def _dur_of(key, robot=None):
     return _param('durations', key, robot)
 
 
+# CatchTarget 시각 서보 기본값. config coshow.capture_servo 가 키 단위로 덮어쓴다.
+_SERVO_DEFAULTS = dict(enabled=True, center_tol_m=0.10, first_gain=0.9, first_max_step_m=0.5,
+                       gain=0.6, max_step_m=0.35, max_steps=6, step_sec=5.0, settle_sec=1.0,
+                       arrive_timeout_sec=14.0, lost_wait_sec=3.0)
+
+
+def _servo_cfg():
+    d = dict(_SERVO_DEFAULTS)
+    d.update(C.get('capture_servo') or {})
+    return d
+
+
 def _robots_from_attrs(bb, robots=None, robots_key=None, exclude_key=None):
     """XML 속성(robots="cf230,cf231") 또는 블랙보드 키(robots_key="finder")로 로봇 목록 결정."""
     if robots_key:
@@ -560,21 +572,28 @@ class UpdateBlackboard(ConditionWithROSTopics):
                 self._mm_found = True          # 콜백 라우팅 전환: 이후 미션기 검출도 타겟으로 분류
 
         # [타겟 마커] 발신 ∈ searchers(투입된 미션기 포함), id == target_id (콜백 필터). 최초 1회만 latch
+        # 확정(target_confirmed) 주체는 모드에 따라 다르다:
+        #   서보 모드(capture_servo.enabled): CatchTarget 이 중심 정렬에 수렴한 순간 직접 확정하고
+        #     target_marker.pose 도 그때 1회 갱신한다. 여기의 재검출/타임아웃 확정은 끈다 — 켜 두면
+        #     finder 의 옛 drone_arrived(예: 미션기가 관측점 도착 기록을 갖고 탐색에 투입된 경우) 때문에
+        #     첫 재검출에서 조기 확정돼 서보가 시작도 못 하고 끝난다.
+        #   원샷 모드: 예전대로 finder 가 P_N 도착 이후 재검출하면 확정, 없으면 recheck_timeout 뒤 확정.
+        servo_on = bool(_servo_cfg()['enabled'])
         for ev in target_evs:
             if ev['drone'] not in bb['searchers'] and ev['drone'] != bb.get('finder'):
                 continue
             if not bb['target_marker']['found']:
                 bb['target_marker'] = dict(ev, found=True)
                 bb['finder'] = ev['drone']
-                # P_N 은 이 순간 확정하고 이후 갱신하지 않는다. 갱신하면
-                # CatchTarget 의 목표가 매 tick 흔들려 go_to 가 재발행되고,
-                # 궤적이 t=0 으로 리셋되어 감속 구간에 도달하지 못한다.
-            # [재검출 확정] finder 가 P_N 도착 이후의 검출
-            fa = bb['drone_arrived'].get(bb.get('finder'))
-            if fa is not None and ev['t'] >= fa['t'] and ev['drone'] == bb.get('finder'):
-                bb['target_confirmed'] = True
-        # 재검출 타임아웃: finder 도착 후 recheck_timeout 초 동안 확정 없으면 P_N 그대로 확정
-        if bb['target_marker']['found'] and not bb['target_confirmed']:
+                # P_N 은 이 순간 latch 한다. 매 tick 갱신하면 CatchTarget 의 목표가 흔들려 go_to 가
+                # 재발행되고 궤적이 t=0 으로 리셋된다. (서보 모드는 CatchTarget 이 수렴 시 1회만 갱신)
+            if not servo_on:
+                # [재검출 확정] finder 가 P_N 도착 이후의 검출
+                fa = bb['drone_arrived'].get(bb.get('finder'))
+                if fa is not None and ev['t'] >= fa['t'] and ev['drone'] == bb.get('finder'):
+                    bb['target_confirmed'] = True
+        # 재검출 타임아웃(원샷 모드만): finder 도착 후 recheck_timeout 초 동안 확정 없으면 P_N 그대로 확정
+        if not servo_on and bb['target_marker']['found'] and not bb['target_confirmed']:
             fa = bb['drone_arrived'].get(bb.get('finder'))
             if fa is not None and t - fa['t'] > float(C['recheck_timeout']):
                 bb['target_confirmed'] = True
@@ -1913,42 +1932,64 @@ class ReturnDrones(_MultiDroneAction):
 
 
 class CatchTarget(_MultiDroneAction):
-    """P_N 에 xy 최근접 드론을 finder 로 정해 P_N 상공으로 go_to. 도착 시 drone_arrived[finder] 기록."""
+    """타겟 포착. finder 를 정해 마커 상공으로 보낸다.
+
+    [서보 모드] (capture_servo.enabled, 기본 true) — 실기 위치추정(depth) 오차 대응.
+      한 방에 추정 위치로 가지 않고 "go_to 1회 → 도착·정착 확인 → 정착 후 프레임으로 마커 오프셋 측정
+      → 오프셋 ≤ center_tol 이면 성공, 아니면 다음 go_to" 를 반복한다.
+      · 오프셋 = 역투영 world_xy − 드론 pose_xy. 역투영 depth 가 e 배 틀려도 방향은 맞고 크기만 e 배라,
+        게인<1 + 스텝 상한 + (오버슈트/정체 감지 시 게인 절반) 으로 수렴한다. 마커가 중심에 오면
+        오프셋→0 이라 수렴 판정 자체도 depth 오차와 무관하다.
+      · go_to 는 스텝당 정확히 1회. 매 tick 재발행하지 않는다 (궤적 t=0 리셋·crazyflie 부하 방지).
+        _send 의 서명 중복 방지가 2차 안전장치.
+      · 수렴 시 최종 P_N = 수렴 순간 드론 pose + 잔여 오프셋(≈드론 pose, Lighthouse 정확도).
+        target_marker.pose 를 갱신하고 target_confirmed 를 여기서 직접 세운다
+        (UpdateBlackboard 의 재검출/타임아웃 확정은 서보 모드에서 꺼진다).
+      · drone_arrived[finder] 는 수렴/폴백 때만 기록한다 — 중간 스텝 도착으로 상위가 오판하지 않게.
+      · 폴백: max_steps 초과 / 정착 후 마커 유실 지속 → 가장 중심에 가까웠던 스텝으로 확정.
+        도착 미확인은 arrive_timeout 뒤 그대로 측정으로 진행해 교착을 막는다.
+    [원샷 모드] (enabled: false) — 예전 동작: P_N 으로 1회 go_to, 도착 hold 시 drone_arrived 기록,
+      확정은 UpdateBlackboard 의 재검출/타임아웃이 한다.
+    """
 
     def __init__(self, name, agent):
         super().__init__(name, agent)
         self._since = None
-        self._sent_goal = {}     # finder -> 실제로 보낸 목표 (finder 당 1회만 발행)
+        self._sent_goal = {}     # (원샷) finder -> 보낸 목표
+        self._sv = None          # (서보) 상태
+        self._sv_finder = None
+
+    def _pick_finder(self, bb, gx, gy):
+        # 퇴역 드론은 후보에서 뺀다. LOST 드론은 bb['pose'] 에 옛 값이 남아 공중으로 보일 수 있고,
+        # finder 였던 드론이 퇴역하면 여기서 자동으로 최근접 생존 드론으로 넘어간다.
+        retired = bb.get('retired', ())
+        cands = [d for d in bb.get('searchers', SEARCHERS) if d not in retired
+                 and d in bb['pose'] and bb['pose'][d]['z'] >= float(TOL['airborne_z'])]
+        if not cands:
+            return None
+        if bb.get('finder') not in cands:
+            bb['finder'] = min(cands, key=lambda d: _dist2(bb['pose'][d]['x'], bb['pose'][d]['y'], gx, gy))
+        return bb['finder']
 
     async def run(self, agent, bb):
         pn = bb.get('P_N')
         if pn is None:
             self.status = Status.FAILURE
             return self.status
-        gx, gy = float(pn['x']), float(pn['y'])
-        # 퇴역 드론은 후보에서 뺀다. LOST 드론은 bb['pose'] 에 옛 값이 남아 공중으로 보일 수 있고,
-        # finder 였던 드론이 퇴역하면 여기서 자동으로 최근접 생존 드론으로 넘어간다.
-        retired = bb.get('retired', ())
-        # bb['searchers'] 는 탐색에 투입된 미션기까지 포함한 동적 명단 (UpdateBlackboard 가 기록)
-        cands = [d for d in bb.get('searchers', SEARCHERS) if d not in retired
-                 and d in bb['pose'] and bb['pose'][d]['z'] >= float(TOL['airborne_z'])]
-        if not cands:
+        f = self._pick_finder(bb, float(pn['x']), float(pn['y']))
+        if f is None:
             self.status = Status.FAILURE
             return self.status
-        if bb.get('finder') not in cands:
-            bb['finder'] = min(cands, key=lambda d: _dist2(bb['pose'][d]['x'], bb['pose'][d]['y'], gx, gy))
-        f = bb['finder']
-        # 고도는 finder 가 정해진 뒤에 읽는다 (드론별 재정의를 반영하기 위해)
+        cfg = _servo_cfg()
+        self.status = self._run_servo(bb, f, cfg) if bool(cfg['enabled']) else self._run_oneshot(bb, f, pn)
+        return self.status
+
+    # ---- 원샷 (예전 동작) ----
+    def _run_oneshot(self, bb, f, pn):
+        gx, gy = float(pn['x']), float(pn['y'])
         gz = _alt('capture', f)
-        # 명령은 finder 당 1회만. 이후 P_N 이 갱신돼도 재발행하지 않는다.
-        # (매 tick 재발행하면 go_to 궤적이 t=0 으로 리셋되어 감속 구간에 못 간다)
-        # 서비스 미준비로 실패하면 기록하지 않아 다음 tick 에 다시 시도한다.
-        if f not in self._sent_goal and self._goto(bb, f, gx, gy, gz,
-                                                   duration=_dur_of('capture', f)):
+        if f not in self._sent_goal and self._goto(bb, f, gx, gy, gz, duration=_dur_of('capture', f)):
             self._sent_goal[f] = (gx, gy, gz)
-        # 도착(hold) 판정 → 재검출 게이팅용 시각 기록.
-        # 기준은 "실제로 보낸 목표". 갱신되는 P_N 으로 재면 드론이 선 자리와
-        # 어긋나 도착 판정이 영영 안 나고 확정·타임아웃이 둘 다 막힌다.
         tgt = self._sent_goal.get(f)
         if tgt is not None and self._at(bb, f, *tgt):
             if self._since is None:
@@ -1959,13 +2000,155 @@ class CatchTarget(_MultiDroneAction):
                     bb['drone_arrived'][f] = {'goal': (tgt[0], tgt[1]), 't': self._since}
         else:
             self._since = None
-        self.status = Status.RUNNING
-        return self.status
+        return Status.RUNNING
+
+    # ---- 서보 ----
+    def _target_offset(self, bb, f, min_t=None):
+        """finder 의 최신 검출 프레임에서 타겟 마커 오프셋 (dx, dy, frame_t). 없으면 None.
+        오프셋 = 역투영 world_xy − 드론 pose_xy. 드론 위치는 bb['pose'] 를 쓴다
+        (msg.drone_pose 가 비어 있는 시뮬 하네스에서도 동작; 정착 후 측정이라 프레임 시점과 거의 같다).
+        min_t 가 주어지면 그 이후 프레임만 인정한다(정착 후 측정)."""
+        det_t = bb.get('cam_seen', {}).get(f)
+        msg = bb.get('detections', {}).get(f)
+        p = bb['pose'].get(f)
+        tid = bb.get('target_id')
+        if det_t is None or msg is None or p is None or tid is None:
+            return None
+        if min_t is not None and det_t < min_t:
+            return None
+        m = next((k for k in msg.markers if k.id == tid), None)
+        if m is None or (m.world_x == 0.0 and m.world_y == 0.0):
+            return None
+        return float(m.world_x) - p['x'], float(m.world_y) - p['y'], det_t
+
+    def _sv_reset(self, f, cfg):
+        self._sv_finder = f
+        self._sv = dict(phase='send', step=0, target=None, sent_t=None, dur=None, arrive_t=None,
+                        settle_t=None, meas_t=None, gain=float(cfg['gain']),
+                        prev=None, best=None, used_det_t=None)
+
+    def _finalize(self, bb, f, px, py, note):
+        p = bb['pose'][f]
+        pose = {'x': float(px), 'y': float(py), 'z': float(p['z'])}
+        bb['target_marker']['pose'] = pose            # UpdateBlackboard 가 매 tick 여기서 P_N/P_N_limo 를 만든다
+        bb['P_N'] = pose
+        bb['P_N_limo'] = dict(pose, x=pose['x'] + float(C.get('limo_approach_dx', 0.0)))
+        bb['target_confirmed'] = True
+        bb['target_confirm_note'] = note
+        bb['drone_arrived'][f] = {'goal': (pose['x'], pose['y']), 't': bb['now']}
+        self._sv['phase'] = 'done'
+        print(f'[CAPTURE] {f} 포착 확정({note}) step={self._sv["step"]} '
+              f'P_N=({pose["x"]:.2f},{pose["y"]:.2f})', flush=True)
+
+    def _run_servo(self, bb, f, cfg):
+        if self._sv is None or self._sv_finder != f:
+            self._sv_reset(f, cfg)
+        sv, now = self._sv, bb['now']
+        p = bb['pose'][f]
+        gz = _alt('capture', f)
+
+        if sv['phase'] == 'done':
+            return Status.RUNNING
+
+        if sv['phase'] == 'send':
+            # 오프셋: 최신 검출 프레임(있으면) → 없으면 latch 된 P_N 기준
+            off = self._target_offset(bb, f)
+            if off is None:
+                pn = bb['P_N']
+                dx, dy = float(pn['x']) - p['x'], float(pn['y']) - p['y']
+            else:
+                dx, dy = off[0], off[1]
+            first = (sv['step'] == 0)
+            gain = float(cfg['first_gain']) if first else sv['gain']
+            cap = float(cfg['first_max_step_m']) if first else float(cfg['max_step_m'])
+            sx, sy = gain * dx, gain * dy
+            n = math.hypot(sx, sy)
+            if n > cap:
+                sx, sy = sx * cap / n, sy * cap / n
+            tx, ty = p['x'] + sx, p['y'] + sy
+            prev_t = sv['target']
+            if prev_t is not None and _dist2(tx, ty, prev_t[0], prev_t[1]) < 1e-3:
+                # 같은 목표 = 이미 그 자리. 재전송 없이 바로 측정으로.
+                sv.update(phase='measure', settle_t=now, meas_t=now)
+                return Status.RUNNING
+            dur = _dur_of('capture', f) if first else float(cfg['step_sec'])
+            if self._goto(bb, f, tx, ty, gz, duration=dur):
+                sv.update(target=(tx, ty, gz), sent_t=now, dur=float(dur), arrive_t=None,
+                          step=sv['step'] + 1, phase='moving')
+                print(f'[CAPTURE] {f} step {sv["step"]}: off=({dx:+.2f},{dy:+.2f}) gain={gain:.2f} '
+                      f'→ go_to ({tx:.2f},{ty:.2f}) dur={dur:.0f}s', flush=True)
+            return Status.RUNNING
+
+        if sv['phase'] == 'moving':
+            tx, ty, tz = sv['target']
+            # go_to 는 duration 동안 궤적을 그리므로 그 시간이 지나기 전엔 "도착" 으로 보지 않는다.
+            # _at 의 기본 허용오차(drone_at 0.15 m)가 미세 스텝(≤0.16 m)보다 커서, 시간을 안 기다리면
+            # 출발 직후에 도착 판정이 나 이동 중에 측정하게 된다. 허용오차도 center_tol 로 조인다.
+            tight = min(float(TOL['drone_at']), float(cfg['center_tol_m']))
+            if now - sv['sent_t'] >= sv['dur'] and self._at(bb, f, tx, ty, tz, tol=tight):
+                if sv['arrive_t'] is None:
+                    sv['arrive_t'] = now
+                elif now - sv['arrive_t'] >= float(cfg['settle_sec']):
+                    sv.update(phase='measure', settle_t=now, meas_t=now)
+            else:
+                sv['arrive_t'] = None
+                if now - sv['sent_t'] > float(cfg['arrive_timeout_sec']):
+                    print(f'[CAPTURE] {f} step {sv["step"]} 도착 미확인 {now - sv["sent_t"]:.0f}s '
+                          f'→ 그대로 측정', flush=True)
+                    sv.update(phase='measure', settle_t=now, meas_t=now)
+            return Status.RUNNING
+
+        # phase == 'measure': 정착 후 프레임으로만 판정
+        off = self._target_offset(bb, f, min_t=sv['settle_t'])
+        if off is not None and off[2] != sv['used_det_t']:
+            dx, dy, det_t = off
+            sv['used_det_t'] = det_t
+            mag = math.hypot(dx, dy)
+            if sv['best'] is None or mag < sv['best'][0]:
+                sv['best'] = (mag, p['x'] + dx, p['y'] + dy)
+            tol = float(cfg['center_tol_m'])
+            if mag <= tol:
+                # 최종 P_N = 드론 pose + 잔여 오프셋. 잔여는 depth 오차(e)로 e 배 과장될 수 있어
+                # center_tol/2 이내로만 반영한다 — e=1 이면 절반만 손해, e 가 아무리 커도 그 이상 못 틀림.
+                # (드론 pose 자체는 Lighthouse 정확도라 여기서 오차가 남지 않는다)
+                h = 0.5 * tol
+                if mag > h:
+                    dx, dy = dx * h / mag, dy * h / mag
+                self._finalize(bb, f, p['x'] + dx, p['y'] + dy, 'servo_converged')
+                return Status.RUNNING
+            if sv['step'] >= int(cfg['max_steps']):
+                b = sv['best']
+                print(f'[CAPTURE] {f} max_steps({int(cfg["max_steps"])}) 도달, '
+                      f'최소 오프셋 {b[0]:.2f}m 스텝으로 확정', flush=True)
+                self._finalize(bb, f, b[1], b[2], 'servo_fallback_steps')
+                return Status.RUNNING
+            # 적응 게인: 오프셋이 충분히 안 줄거나 방향이 뒤집히면(오버슈트) 게인 절반
+            pv = sv['prev']
+            if pv is not None and (dx * pv[0] + dy * pv[1] < 0 or mag > 0.8 * math.hypot(*pv)):
+                sv['gain'] = max(0.2, sv['gain'] * 0.5)
+                print(f'[CAPTURE] {f} 오버슈트/정체 감지 → gain {sv["gain"]:.2f}', flush=True)
+            sv['prev'] = (dx, dy)
+            sv['phase'] = 'send'
+            return Status.RUNNING
+        # 정착 후 타겟 프레임이 아직 없음
+        if now - sv['meas_t'] > float(cfg['lost_wait_sec']):
+            b = sv['best']
+            if b is not None:
+                print(f'[CAPTURE] {f} 정착 후 {float(cfg["lost_wait_sec"]):.0f}s 마커 미검출 '
+                      f'→ 최소 오프셋 스텝으로 확정', flush=True)
+                self._finalize(bb, f, b[1], b[2], 'servo_fallback_lost')
+            else:
+                # 한 번도 못 쟀다: 첫 go_to 가 P_N 방향으로 갔으므로 현 위치가 근사치
+                print(f'[CAPTURE] {f} 서보 중 마커 미검출(측정 이력 없음) → 현 위치로 확정', flush=True)
+                self._finalize(bb, f, p['x'], p['y'], 'servo_fallback_nodet')
+        return Status.RUNNING
 
     def halt(self):
         super().halt()
         self._since = None
         self._sent_goal = {}
+        self._sv = None
+        self._sv_finder = None
 
 
 # ═════════════════════════════════════════════════════════════════════════════

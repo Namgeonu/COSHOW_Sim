@@ -128,6 +128,22 @@ coshow:
     short_dist: 1.0
     capture: 10.0
 
+  # 타겟 포착 시각 서보 (CatchTarget). 한 방 이동 대신 "go_to 1회 → 도착·정착 → 정착 후 프레임으로
+  # 마커 오프셋 측정 → 중심 아니면 다음 go_to" 반복. 최종 P_N 은 수렴 순간의 드론 위치 기준이라
+  # 역투영 depth 오차가 결과에 남지 않는다. go_to 는 스텝당 1회만 나간다 (매 tick 재발행 없음).
+  capture_servo:
+    enabled: true             # false 면 예전 원샷(P_N 으로 1회 이동, 재검출/타임아웃 확정)
+    center_tol_m: 0.10        # 정착 후 측정한 마커 수평 오프셋(m)이 이 이하이면 중심 정렬 = 포착 성공
+    first_gain: 0.9           # 1스텝(초기 접근) 게인
+    first_max_step_m: 0.5     # 1스텝 최대 이동. 검출 반경 안에서 시작하므로 이 이상 갈 일 없음 (오버슈트 상한)
+    gain: 0.6                 # 2스텝부터 게인 (감쇠 → depth 과대추정 시 오버슈트 방지)
+    max_step_m: 0.35          # 2스텝부터 최대 이동
+    max_steps: 6              # 초과 시 가장 중심에 가까웠던 스텝으로 확정 (폴백)
+    step_sec: 5.0             # 2스텝부터 go_to duration (1스텝은 durations.capture)
+    settle_sec: 1.0           # 도착 후 정착 대기. 이 뒤 프레임만 측정 (이동 중 기울기 배제)
+    arrive_timeout_sec: 14.0  # 도착 확인이 안 나도 이 시간 뒤 측정으로 진행 (교착 방지)
+    lost_wait_sec: 3.0        # 정착 후 마커가 안 보이면 이만큼 기다렸다 폴백
+
   # 전역 기본값. 위 drones.*.altitudes 재정의가 우선한다.
   altitudes:
     takeoff: 0.8
