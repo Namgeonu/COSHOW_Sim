@@ -77,7 +77,14 @@ except ImportError:  # run directly: python3 aideck_aruco_node.py
     )
 
 
-# ── 카메라 역투영: 마커 픽셀 -> 지면(z=0) 월드 좌표 (하방 카메라) ──
+# ── 카메라 역투영: 마커 픽셀 -> 월드 좌표 (하방 카메라) ──
+#
+# 마커의 "화면상 크기"로 거리를 재므로 지형 높이를 몰라도 된다.
+# 한 변 _MARKER_SIZE_M 인 마커가 깊이 Z 에 있으면 화면에 f*size/Z 픽셀로
+# 보이므로, 거꾸로 Z = f*size/size_px 로 깊이가 나온다.
+#
+# 예전에는 광선을 z=0 평면과 교차시켰다. 마커가 바닥에 있을 때만 맞는
+# 가정이라, 건물 지붕에 올리면 광선이 지붕을 지나쳐 바닥까지 내려간다.
 #
 # AI-deck (Himax HM01B0-MNA) 규격:
 #   유효 픽셀 320x320, QVGA 윈도우 출력 324x244, 수평/수직 시야각 87°.
@@ -87,6 +94,7 @@ except ImportError:  # run directly: python3 aideck_aruco_node.py
 # 주의: 규격표의 대각 115° 는 87°x87° 정사각의 핀홀 계산값(107°)과 맞지 않는다.
 #   광학 왜곡이 있다는 뜻이고, 이 코드는 왜곡 없는 핀홀을 가정하므로 화면
 #   가장자리에서 오차가 커진다. 우선 그대로 쓰고 실측 후 필요하면 보정한다.
+_MARKER_SIZE_M = 0.2                  # 마커 한 변 (실제 출력물 크기와 맞출 것)
 _IMG_W, _IMG_H = 324.0, 244.0
 _FOV_H = np.radians(87.0)
 _FOV_V = 2 * np.arctan((_IMG_H / _IMG_W) * np.tan(_FOV_H / 2))
@@ -108,26 +116,27 @@ def quat_to_R(qw, qx, qy, qz):
     )
 
 
-def backproject_marker(cx_px, cy_px, pose):
-    """마커 픽셀과 드론 pose(위치+자세)로 마커의 지면 월드 좌표 (x,y) 계산.
+def backproject_marker(cx_px, cy_px, size_px, pose):
+    """마커 픽셀·크기와 드론 pose 로 마커의 월드 좌표 (x, y, z) 계산.
 
-    드론이 기울어져 있어도 자세를 반영해 광선을 회전시키므로 마커의 실제 위치가
-    나온다. 광선이 지면을 향하지 않거나 뒤쪽에서 만나면 None.
+    size_px 는 네 변 길이의 평균. 드론이 기울어져 있어도 자세를 반영해
+    광선을 회전시키므로 마커의 실제 위치가 나온다. 지형 높이를 가정하지
+    않으므로 마커가 바닥에 있든 구조물 위에 있든 같은 식으로 동작한다.
+
+    한계: 마커가 카메라를 정면으로 마주본다고 본다. 크게 기울면 화면상
+    크기가 줄어 실제보다 멀게 나온다.
     """
+    if size_px <= 1e-6:
+        return None
     p = pose.pose.position
     o = pose.pose.orientation
     nx = (cx_px - _CX) / _FX
     ny = (cy_px - _CY) / _FY
-    pc = np.array([-ny, nx, 1.0])
-    pc /= np.linalg.norm(pc)
+    depth = _FX * _MARKER_SIZE_M / size_px        # 광축 방향 거리
+    pc = np.array([-ny, nx, 1.0]) * depth         # 카메라 좌표계에서의 마커 위치
     R = quat_to_R(o.w, o.x, o.y, o.z) @ _CAM_STATIC
-    uE = R @ pc
-    if uE[2] >= -1e-9:
-        return None
-    k = -p.z / uE[2]
-    if k < 0:
-        return None
-    return float(p.x + k * uE[0]), float(p.y + k * uE[1])
+    v = R @ pc                                    # 월드 기준 상대 변위
+    return float(p.x + v[0]), float(p.y + v[1]), float(p.z + v[2])
 
 
 def to_stamp(wall_time):
@@ -509,12 +518,13 @@ class AideckArucoNode(Node):
                 det.cx = float(marker["center_x"])
                 det.cy = float(marker["center_y"])
                 det.size_px = float(marker["size_px"])
-                # pose 가 아직 없거나 광선이 지면을 안 향하면 0 으로 남는다.
+                # pose 가 아직 없거나 마커 크기가 0 이면 0 으로 남는다.
                 # 트리는 0 인 프레임을 버리고 다음 프레임에 다시 시도한다.
+                # z 는 메시지에 담을 자리가 없어 버린다 (BT 는 x·y 만 쓴다).
                 if pose is not None:
-                    proj = backproject_marker(det.cx, det.cy, pose)
+                    proj = backproject_marker(det.cx, det.cy, det.size_px, pose)
                     if proj is not None:
-                        det.world_x, det.world_y = proj
+                        det.world_x, det.world_y = proj[0], proj[1]
                 detections.markers.append(det)
 
             channel.pub_coshow.publish(detections)
