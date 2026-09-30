@@ -89,7 +89,7 @@ capture_servo:
 - `/limo_x/odom`, `/limo_x/amcl_pose`는 BT 필수 아님(대시보드·모니터용). 시작 게이트에서 리모 제외됨.
 
 ### 검출 (검출 담당)
-- 마커 위치 = **화면상 마커 크기 기반 역투영**(지붕 높이 마커 대응). 시뮬 검출 노드는 반영됨. **실기 aideck 노드(`ros2_ws/.../aideck_aruco_node.py`)는 아직 미커밋** — 지붕 마커 쓰려면 커밋 필요.
+- 마커 위치 = **화면상 마커 크기 기반 역투영**(지붕 높이 마커 대응). 시뮬·실기 검출 노드 모두 반영됨. **실기 노드는 수정 후 `colcon build --packages-select aideck_aruco_ros` 로 다시 빌드해야 적용**된다.
 - 실제 출력 마커 한 변이 **0.2 m**여야 정확(`_MARKER_SIZE_M`). 다르면 위치가 비례해서 틀어진다.
 - 마커 확정 = 최근 `confirm_window_sec`(3초) 안에 `confirm_frames`(3장) 이상 + 윈도우 안에서 **드론이 가장 위에 있던 프레임** 채택(방식 B).
 
@@ -168,7 +168,6 @@ cd ~/COSHOW/dashboard && ./run.sh                    # T7
 
 ## 7. 알아둘 점 / 미결
 
-- **실기 검출 노드(aideck_aruco_node.py)의 크기기반 역투영은 아직 미커밋.** 지붕 마커를 실기에서 쓰려면 커밋 필요.
 - 저장소에 건물/월드 실험(`worlds/coshow_integrated.wbt`, `protos/buildings/`, `controllers/roof_probe/` 등)이 **미커밋 WIP**로 남아 있음 — 이번 리허설 변경과 무관.
 - `PreflightReady`는 `preflight.required: true`(리허설)면 항상 켜져 있다. `--no-preflight`로는 안 꺼진다.
 - 리모 라이다 높이가 COSHOW는 -0.120(착륙 드론 감지용), 별도 `~/LIMO_webots`는 공식값 -0.034 — 목적이 달라 값이 다름.
