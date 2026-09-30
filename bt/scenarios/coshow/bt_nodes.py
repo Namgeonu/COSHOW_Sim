@@ -2106,6 +2106,17 @@ class CatchTarget(_MultiDroneAction):
             mag = math.hypot(dx, dy)
             if sv['best'] is None or mag < sv['best'][0]:
                 sv['best'] = (mag, p['x'] + dx, p['y'] + dy)
+            # 이동 완료(도착·정착) 시점마다 마커 위치 추정을 갱신한다. 문제는 드론 이동이 아니라
+            # 위치 추정 오차이고, 마커에 가까이·위에서 다시 잰 값일수록 정확하므로 처음 검출값을
+            # 끝까지 들고 있지 않는다. target_marker.pose 를 바꿔야 UpdateBlackboard 가 매 tick
+            # P_N/P_N_limo 를 이 값으로 다시 만든다. target_confirmed 는 아직 안 세우므로
+            # 리모는 출동하지 않는다 (확정은 수렴/폴백 때만).
+            est = {'x': p['x'] + dx, 'y': p['y'] + dy, 'z': float(p['z'])}
+            bb['target_marker']['pose'] = est
+            bb['P_N'] = est
+            bb['P_N_limo'] = dict(est, x=est['x'] + float(C.get('limo_approach_dx', 0.0)))
+            print(f'[CAPTURE] {f} step {sv["step"]} 도착 후 재추정: 마커=({est["x"]:.2f},{est["y"]:.2f}) '
+                  f'중심오차 {mag:.2f}m', flush=True)
             tol = float(cfg['center_tol_m'])
             if mag <= tol:
                 # 최종 P_N = 드론 pose + 잔여 오프셋. 잔여는 depth 오차(e)로 e 배 과장될 수 있어
